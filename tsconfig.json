@@ -1,0 +1,17 @@
+{
+  // Type checking only: Node runs jboard.ts directly by stripping the types,
+  // which is why only erasable TypeScript syntax is allowed.
+  "compilerOptions": {
+    "strict": true,
+    "target": "es2022",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "noUnusedLocals": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["jboard.ts"]
+}

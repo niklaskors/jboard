@@ -1,0 +1,20 @@
+{
+  "name": "jboard",
+  "version": "0.1.0",
+  "description": "Your active Jira sprint as an interactive kanban board in the terminal",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "author": "Niklas Kors",
+  "repository": "github:niklaskors/jboard",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "check": "tsc"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^7.0.0"
+  }
+}
