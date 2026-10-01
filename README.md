@@ -6,7 +6,7 @@ Your active Jira sprint as an interactive kanban board in the terminal.
 
 - **The board you know**: the columns, statuses and story points of your Jira board, one card per story with its subtasks folded underneath
 - **Work without the browser**: change status, assign people, set story points and create subtasks from the keyboard
-- **One file, no dependencies**: a single TypeScript file that Node runs directly, no build step and no `npm install`
+- **No build, no dependencies**: TypeScript that Node runs directly, so there is no build step and no `npm install` needed to use it
 
 ## Requirements
 
@@ -18,8 +18,11 @@ Your active Jira sprint as an interactive kanban board in the terminal.
 
 ```sh
 git clone https://github.com/niklaskors/jboard.git
-ln -s "$PWD/jboard/jboard.ts" ~/.local/bin/jboard   # any directory on your PATH
+ln -s "$PWD/jboard/bin/jboard.ts" ~/.local/bin/jboard   # any directory on your PATH
 ```
+
+The link must point at `bin/jboard.ts` inside the clone (not a copy of it): it loads the rest of the code from `src/`.
+To update, `git pull` in the clone.
 
 Then set the environment, for example in `~/.zshrc`:
 
@@ -92,8 +95,35 @@ npm install      # TypeScript and Node types, only needed for type checking
 npm run check    # strict type check
 ```
 
-Node only strips types, so jboard can only use erasable TypeScript syntax (no enums, namespaces or parameter properties);
-`tsconfig.json` enforces this.
+Node only strips types, so jboard can only use erasable TypeScript syntax (no enums, namespaces or parameter properties)
+and imports must name the `.ts` file; `tsconfig.json` enforces both.
+
+### Project layout
+
+```
+bin/jboard.ts          entry point
+src/cli.ts             options, help text, startup
+src/config.ts          settings from the environment
+src/browser.ts         opening URLs on macOS, Linux and Windows
+src/board.ts           the sprint: columns, cards with their subtasks, story points
+src/jira/client.ts     HTTP: bearer token, retries, error log, SSO re-sign-in
+src/jira/api.ts        Jira operations: transitions, assigning, fields, bulk-creating subtasks
+src/jira/types.ts      the Jira data jboard uses
+src/render/line.ts     styled text lines: wrapping, fitting, overlaying
+src/render/theme.ts    the night, day and classic themes
+src/render/layout.ts   cards, column headers and the sprint header
+src/render/print.ts    the printed board (-p)
+src/tui/app.ts         the interactive board: navigation, drawing, keys
+src/tui/dialog.ts      the dialog interface and box drawing
+src/tui/picker.ts      filter-as-you-type list used by assign and status
+src/tui/assign.ts      A: assign
+src/tui/status.ts      s: change status
+src/tui/points.ts      p: story points
+src/tui/subtasks.ts    c: create subtasks
+```
+
+A new dialog implements `Dialog` (`draw` and `key`) and gets a `DialogHost` to show messages and run Jira changes;
+`src/tui/points.ts` is the smallest example.
 
 ## License
 

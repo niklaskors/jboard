@@ -1,0 +1,93 @@
+// Command line: options, help text and startup.
+
+import { parseArgs } from "node:util";
+import { Board } from "./board.ts";
+import { openUrl } from "./browser.ts";
+import { boardUrl, SERVER, TOKEN } from "./config.ts";
+import { JiraError } from "./jira/client.ts";
+import { printBoard } from "./render/print.ts";
+import { THEME_NAMES, useTheme } from "./render/theme.ts";
+import { Tui } from "./tui/app.ts";
+
+const USAGE = `Usage: jboard [-m] [-a] [-b BOARD_ID] [-w] [-p] [-t THEME]
+  -m, --mine     start with only my cards (assigned to me, or with a subtask of mine)
+  -a, --all      show every card in the done column, not just the 5 latest
+  -b, --board    board id, the rapidView=<id> in the board's URL (default: $JIRA_BOARD_ID)
+  -w, --web      open the board in the browser instead
+  -p, --print    print the board once instead of the interactive view
+                 (automatic when output is not a terminal)
+  -t, --theme    night (default, dark), day (light terminals) or classic (16 colours);
+                 or set $JBOARD_THEME. 24-bit colour is used when $COLORTERM says so
+
+Keys: h/j/k/l or arrows  move          enter/space  expand/collapse subtasks
+      g/G                top/bottom    e            expand/collapse all
+      o                  open the selected issue in the browser
+      w                  open the whole board in the browser
+      s                  change status of the selected story/subtask (type to filter)
+      A                  assign the selected story/subtask (type to search, enter to assign)
+      p                  set story points of the selected story (empty clears)
+      c                  create subtasks under the selected story: one per line, ctrl+s to create
+      m                  toggle mine   a            toggle all done cards
+      r                  refresh       q/esc        quit
+
+Environment:
+  JIRA_SERVER     base URL, e.g. https://jira.example.com/jira            (required)
+  JIRA_API_TOKEN  personal access token, sent as a bearer token           (required)
+  JIRA_BOARD_ID   board to show, the rapidView=<id> in the board's URL     (or use --board)
+  JIRA_SSO_URL    page that redoes your SSO sign-in when Jira suddenly refuses the token
+                  (default: $JIRA_SERVER/login.jsp)
+  JBOARD_THEME    night, day or classic`;
+
+async function main(): Promise<void> {
+  let values;
+  try {
+    ({ values } = parseArgs({
+      options: {
+        mine: { type: "boolean", short: "m" },
+        all: { type: "boolean", short: "a" },
+        board: { type: "string", short: "b" },
+        web: { type: "boolean", short: "w" },
+        print: { type: "boolean", short: "p" },
+        theme: { type: "string", short: "t" },
+        help: { type: "boolean", short: "h" },
+      },
+    }));
+  } catch (e) {
+    console.error(`jboard: ${(e as Error).message}\n\n${USAGE}`);
+    process.exit(2);
+  }
+  if (values.help) {
+    console.log(USAGE);
+    return;
+  }
+  const themeName = values.theme ?? process.env.JBOARD_THEME ?? "night";
+  if (!useTheme(themeName)) {
+    console.error(`jboard: unknown theme "${themeName}", choose from: ${THEME_NAMES.join(", ")}`);
+    process.exit(2);
+  }
+  if (!SERVER || !TOKEN) throw new JiraError("JIRA_SERVER and JIRA_API_TOKEN must be set");
+
+  const boardId = values.board ?? process.env.JIRA_BOARD_ID;
+  if (!boardId) throw new JiraError("no board: set JIRA_BOARD_ID or pass --board <id> (the rapidView=<id> in the board's URL)");
+  if (values.web) {
+    openUrl(boardUrl(boardId));
+    return;
+  }
+
+  const board = new Board(boardId);
+  await board.reload();
+  if (values.print || !process.stdout.isTTY || !process.stdin.isTTY) {
+    printBoard(board, !!values.mine, !!values.all);
+  } else {
+    new Tui(board, !!values.mine, !!values.all).start();
+  }
+}
+
+/** Run jboard; Jira problems end it with a readable message instead of a stack trace. */
+export function run(): void {
+  main().catch((e: unknown) => {
+    if (!(e instanceof JiraError)) throw e;
+    console.error(`jboard: ${e.message}`);
+    process.exit(1);
+  });
+}
