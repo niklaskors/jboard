@@ -47,7 +47,7 @@ export interface Theme {
   cards: boolean; // tinted card blocks with an accent bar; false = classic reverse-video selection
   corners: string; // dialog corners: top-left, top-right, bottom-left, bottom-right
   icons: { story: string; task: string; bug: string; epic: string; other: string; dot: string;
-    sprint: string; info: string; full: string; empty: string };
+    sprint: string; info: string; full: string; empty: string; bench: string };
   codes: Record<string, string>; // style name -> escape codes
 }
 
@@ -94,7 +94,7 @@ function paletteTheme(p: Palette): Theme {
   for (let i = 0; i < PEOPLE_SLOTS; i++) codes[`person${i}`] = fg(p.people[i % p.people.length]);
   return {
     cards: true, corners: "╭╮╰╯", codes,
-    icons: { story: "●", task: "■", bug: "▲", epic: "◆", other: "•", dot: "●", sprint: "◆", info: "●", full: "━", empty: "━" },
+    icons: { story: "●", task: "■", bug: "▲", epic: "◆", other: "•", dot: "●", sprint: "◆", info: "●", full: "━", empty: "━", bench: "⎇" },
   };
 }
 
@@ -114,7 +114,7 @@ function classicTheme(): Theme {
   for (let i = 0; i < PEOPLE_SLOTS; i++) codes[`person${i}`] = DIM;
   return {
     cards: false, corners: "┌┐└┘", codes,
-    icons: { story: "S", task: "T", bug: "B", epic: "E", other: "•", dot: "", sprint: "", info: "", full: "█", empty: "░" },
+    icons: { story: "S", task: "T", bug: "B", epic: "E", other: "•", dot: "", sprint: "", info: "", full: "█", empty: "░", bench: "*" },
   };
 }
 

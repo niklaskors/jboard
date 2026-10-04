@@ -1,6 +1,7 @@
 // Command line: options, help text and startup.
 
 import { parseArgs } from "node:util";
+import { keysWithBench, listBenches } from "./bench.ts";
 import { Board } from "./board.ts";
 import { openUrl } from "./browser.ts";
 import { boardUrl, SERVER, TOKEN } from "./config.ts";
@@ -27,6 +28,9 @@ Keys: h/j/k/l or arrows  move          enter/space  expand/collapse subtasks
       A                  assign the selected story/subtask (type to search, enter to assign)
       p                  set story points of the selected story (empty clears)
       c                  create subtasks under the selected story: one per line, ctrl+s to create
+      b                  open the selected issue's bench (its own git worktree) in a new terminal tab,
+                         making it in the default repo first; subtasks use their story's bench
+      B                  the same, choosing the repo first
       m                  toggle mine   a            toggle all done cards
       r                  refresh       q/esc        quit
 
@@ -36,7 +40,10 @@ Environment:
   JIRA_BOARD_ID   board to show, the rapidView=<id> in the board's URL     (or use --board)
   JIRA_SSO_URL    page that redoes your SSO sign-in when Jira suddenly refuses the token
                   (default: $JIRA_SERVER/login.jsp)
-  JBOARD_THEME    night, day or classic`;
+  JBOARD_THEME    night, day or classic
+  JBOARD_BENCH    the bench command, for b and B (default: bench; see github.com/niklaskors/bench)
+  JBOARD_BRANCH   branch name for a new bench, from {type} (fix for bugs, else feat), {key} and
+                  {summary} (default: {type}/{key}-{summary})`;
 
 async function main(): Promise<void> {
   let values;
@@ -77,7 +84,7 @@ async function main(): Promise<void> {
   const board = new Board(boardId);
   await board.reload();
   if (values.print || !process.stdout.isTTY || !process.stdin.isTTY) {
-    printBoard(board, !!values.mine, !!values.all);
+    printBoard(board, !!values.mine, !!values.all, keysWithBench(await listBenches(), board.keys()));
   } else {
     new Tui(board, !!values.mine, !!values.all).start();
   }

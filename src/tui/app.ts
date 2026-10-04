@@ -1,6 +1,7 @@
 // The interactive board: navigation, drawing and key handling. Dialogs live in their own modules.
 
 import { emitKeypressEvents } from "node:readline";
+import { keysWithBench, listBenches } from "../bench.ts";
 import type { Board } from "../board.ts";
 import { openUrl } from "../browser.ts";
 import { boardUrl, issueUrl } from "../config.ts";
@@ -10,6 +11,7 @@ import { cardWidth, columnHeaderLine, columnItems, columnWidth, decorate, GAP, h
 import { lineLen, place, sliceLine, type Line } from "../render/line.ts";
 import { ansi, theme } from "../render/theme.ts";
 import { openAssign } from "./assign.ts";
+import { openBenchRepo, startBench } from "./bench.ts";
 import type { Dialog, DialogHost, Key } from "./dialog.ts";
 import { openPoints } from "./points.ts";
 import { openStatus } from "./status.ts";
@@ -17,7 +19,7 @@ import { openSubtasks } from "./subtasks.ts";
 
 const KEY_HINTS: [string, string][] = [
   ["hjkl", "move"], ["⏎", "subtasks"], ["s", "status"], ["A", "assign"], ["p", "points"], ["c", "new subtasks"],
-  ["q", "quit"], ["e", "expand all"], ["o", "open"], ["w", "board in browser"], ["m", "mine"], ["a", "all done"], ["r", "refresh"],
+  ["b", "bench"], ["q", "quit"], ["e", "expand all"], ["o", "open"], ["w", "board in browser"], ["m", "mine"], ["a", "all done"], ["r", "refresh"],
 ];
 
 export class Tui implements DialogHost {
@@ -37,6 +39,7 @@ export class Tui implements DialogHost {
   items: Item[][] = [];
   dialog: Dialog | null = null;
   focusKeys: string[] | null = null;
+  benched = new Set<string>();
 
   constructor(board: Board, mine: boolean, showAll: boolean) {
     this.board = board;
@@ -60,7 +63,7 @@ export class Tui implements DialogHost {
     const n = this.board.columns.length;
     this.colW = columnWidth(this.width, n);
     ({ buckets: this.buckets, hidden: this.hidden, points: this.points } = this.board.buckets(this.mine, this.showAll));
-    this.items = this.buckets.map((b, i) => columnItems(this.board, b, i, cardWidth(this.colW), this.expanded));
+    this.items = this.buckets.map((b, i) => columnItems(this.board, b, i, cardWidth(this.colW), this.expanded, this.benched));
     for (let c = 0; c < n; c++) {
       this.sel[c] = Math.min(this.sel[c] ?? 0, Math.max(0, this.items[c].length - 1));
     }
@@ -108,6 +111,18 @@ export class Tui implements DialogHost {
 
   focus(...keys: string[]): void {
     this.focusKeys = keys;
+  }
+
+  async loadBenches(): Promise<void> {
+    this.benched = keysWithBench(await listBenches(), this.board.keys());
+  }
+
+  /** Mark the cards that have a bench, without holding up the board. */
+  showBenches(): void {
+    void this.loadBenches().then(() => {
+      this.rebuildKeepingCursor();
+      if (!this.busy) this.draw();
+    });
   }
 
   async perform(progress: string, work: () => Promise<string>, failure: (message: string) => string): Promise<void> {
@@ -186,6 +201,11 @@ export class Tui implements DialogHost {
     if (cur) this.dialog = open(this, cur);
   }
 
+  async benchCurrent(): Promise<void> {
+    const cur = this.current();
+    if (cur) await startBench(this, cur);
+  }
+
   toggleMine(): void {
     this.mine = !this.mine;
     this.rebuildKeepingCursor();
@@ -203,6 +223,7 @@ export class Tui implements DialogHost {
     this.draw();
     try {
       await this.board.reload();
+      await this.loadBenches();
       this.msg = "refreshed";
     } catch (e) { // keep the old data on network trouble
       this.msg = `refresh failed: ${(e as Error).message}`;
@@ -307,6 +328,7 @@ export class Tui implements DialogHost {
       r: () => this.refresh(), m: () => this.toggleMine(), a: () => this.toggleDone(),
       s: () => this.openDialog(openStatus), A: () => this.openDialog(openAssign),
       p: () => this.openDialog(openPoints), c: () => this.openDialog(openSubtasks),
+      b: () => this.benchCurrent(), B: () => this.openDialog(openBenchRepo),
     };
     const action = name ? actions[name] : undefined;
     if (!action) return;
@@ -336,5 +358,6 @@ export class Tui implements DialogHost {
       this.draw();
     });
     this.draw();
+    this.showBenches();
   }
 }

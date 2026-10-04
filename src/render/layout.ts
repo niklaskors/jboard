@@ -41,9 +41,10 @@ function personStyle(board: Board, user: User | null): string {
 /** 3 -> "3", 0.5 -> "0.5", 1.25 -> "1.25" */
 export const formatPoints = (n: number) => String(Math.round(n * 100) / 100);
 
-function cardLines(board: Board, card: Card, colIdx: number, width: number, expanded: boolean): Line[] {
+function cardLines(board: Board, card: Card, colIdx: number, width: number, expanded: boolean, benched: Set<string>): Line[] {
   const f = card.fields;
   const left: Line = [typeIcon(f.issuetype.name), [" ", null], [card.key, `col${colIdx}`]];
+  if (benched.has(card.key)) left.push([` ${theme.icons.bench}`, "accent"]);
   if (board.pointsField && !f.issuetype.subtask) {
     left.push([" ", null], card.points == null ? ["? pts", "dim"] : [`${formatPoints(card.points)} pts`, "points"]);
   }
@@ -57,23 +58,25 @@ function cardLines(board: Board, card: Card, colIdx: number, width: number, expa
   ];
 }
 
-function subLines(board: Board, sub: Issue, width: number): Line[] {
+function subLines(board: Board, sub: Issue, width: number, benched: Set<string>): Line[] {
   const f = sub.fields;
   const cidx = board.columnOf(sub);
-  const left: Line = [["  ↳ ", "dim"], [sub.key, "bold"], [" ", null],
-    [f.status.name, cidx >= 0 ? `fg${cidx}` : "dim"]];
+  const left: Line = [["  ↳ ", "dim"], [sub.key, "bold"]];
+  if (benched.has(sub.key)) left.push([` ${theme.icons.bench}`, "accent"]);
+  left.push([" ", null], [f.status.name, cidx >= 0 ? `fg${cidx}` : "dim"]);
   return [fit(left, firstName(f.assignee), width, personStyle(board, f.assignee)),
     [[`    ${shorten(f.summary, width - 4)}`, "name"]]];
 }
 
-/** Selectable items of one column: cards, followed by their subtasks when expanded. */
-export function columnItems(board: Board, bucket: Card[], colIdx: number, width: number, expanded: Set<string>): Item[] {
+/** Selectable items of one column: cards, followed by their subtasks when expanded; `benched` issues get a marker. */
+export function columnItems(board: Board, bucket: Card[], colIdx: number, width: number, expanded: Set<string>,
+  benched = new Set<string>()): Item[] {
   const items: Item[] = [];
   for (const card of bucket) {
     const isOpen = expanded.has(card.key) && card.subs.length > 0;
-    items.push({ issue: card, parent: null, lines: cardLines(board, card, colIdx, width, isOpen) });
+    items.push({ issue: card, parent: null, lines: cardLines(board, card, colIdx, width, isOpen, benched) });
     if (isOpen) {
-      for (const sub of card.subs) items.push({ issue: sub, parent: card, lines: subLines(board, sub, width) });
+      for (const sub of card.subs) items.push({ issue: sub, parent: card, lines: subLines(board, sub, width, benched) });
     }
     items[items.length - 1].lines.push([]); // blank line between cards
   }

@@ -5,7 +5,8 @@ import { cardWidth, columnHeaderLine, columnItems, columnWidth, decorate, GAP, h
 import { sliceLine, type Line } from "./line.ts";
 import { ansi } from "./theme.ts";
 
-export function printBoard(board: Board, mine: boolean, showAll: boolean): void {
+/** `benched`: issues that have a bench, which get a marker. */
+export function printBoard(board: Board, mine: boolean, showAll: boolean, benched = new Set<string>()): void {
   const { buckets, hidden, points } = board.buckets(mine, showAll);
   const n = buckets.length;
   const colW = columnWidth(Number(process.env.COLUMNS) || process.stdout.columns || 160, n);
@@ -15,7 +16,7 @@ export function printBoard(board: Board, mine: boolean, showAll: boolean): void 
       sliceLine(columnHeaderLine(board, idx, total, points[idx], false), 0, colW),
       [["─".repeat(colW), `rule${idx}`]],
     ];
-    for (const item of columnItems(board, bucket, idx, cardWidth(colW), new Set())) {
+    for (const item of columnItems(board, bucket, idx, cardWidth(colW), new Set(), benched)) {
       lines.push(...item.lines.map((l) => decorate(l, idx, colW, false)));
     }
     if (idx === n - 1 && hidden) lines.push([[`+${hidden} more (jboard -a)`, "dim"]]);

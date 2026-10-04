@@ -102,6 +102,11 @@ export class Board {
     return [this.meUser, ...[...users.values()].sort((a, b) => fullName(a).localeCompare(fullName(b)))];
   }
 
+  /** Keys of every card and subtask in the sprint. */
+  keys(): string[] {
+    return this.cards.flatMap((card) => [card.key, ...card.subs.map((sub) => sub.key)]);
+  }
+
   /** Index of the board column showing this issue's status, or -1. */
   columnOf(issue: Issue): number {
     return this.columns.findIndex((c) => c.statuses.has(issue.fields.status.id));

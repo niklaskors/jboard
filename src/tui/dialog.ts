@@ -32,6 +32,10 @@ export interface DialogHost {
   expand(cardKey: string): void;
   /** Put the cursor on the first of these issues after the change, instead of where it was. */
   focus(...keys: string[]): void;
+  /** Issues that have a bench (a worktree made by the bench tool). */
+  readonly benched: Set<string>;
+  /** Look up which issues have a bench again. */
+  loadBenches(): Promise<void>;
 }
 
 /** A printable character typed into a text field. */
