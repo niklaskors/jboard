@@ -1,7 +1,7 @@
 // The interactive board: navigation, drawing and key handling. Dialogs live in their own modules.
 
 import { emitKeypressEvents } from "node:readline";
-import { keysWithBench, listBenches } from "../bench.ts";
+import { benchedIssues, branchHasKey, listBenches, type Benched } from "../bench.ts";
 import type { Board } from "../board.ts";
 import { openUrl } from "../browser.ts";
 import { boardUrl, issueUrl } from "../config.ts";
@@ -9,17 +9,19 @@ import { onSignInProgress } from "../jira/client.ts";
 import type { Card } from "../jira/types.ts";
 import { cardWidth, columnHeaderLine, columnItems, columnWidth, decorate, GAP, headerLine, type Item } from "../render/layout.ts";
 import { lineLen, place, sliceLine, type Line } from "../render/line.ts";
-import { ansi, theme } from "../render/theme.ts";
+import { ansi, columnSlot, theme } from "../render/theme.ts";
 import { openAssign } from "./assign.ts";
-import { openBenchRepo, startBench } from "./bench.ts";
+import { openBenchRepo, openMergeRequest, openRemoveBench, startBench } from "./bench.ts";
 import type { Dialog, DialogHost, Key } from "./dialog.ts";
+import { openHelp } from "./help.ts";
 import { openPoints } from "./points.ts";
 import { openStatus } from "./status.ts";
 import { openSubtasks } from "./subtasks.ts";
 
 const KEY_HINTS: [string, string][] = [
-  ["hjkl", "move"], ["⏎", "subtasks"], ["s", "status"], ["A", "assign"], ["p", "points"], ["c", "new subtasks"],
-  ["b", "bench"], ["q", "quit"], ["e", "expand all"], ["o", "open"], ["w", "board in browser"], ["m", "mine"], ["a", "all done"], ["r", "refresh"],
+  ["?", "keys"], ["hjkl", "move"], ["⏎", "subtasks"], ["s", "status"], ["A", "assign"], ["p", "points"], ["c", "new subtasks"],
+  ["b", "bench"], ["^C", "quit"], ["e", "expand all"], ["o", "open"], ["w", "board in browser"], ["m", "mine"], ["a", "all done"], ["r", "refresh"],
+  ["D", "remove bench"],
 ];
 
 export class Tui implements DialogHost {
@@ -39,7 +41,8 @@ export class Tui implements DialogHost {
   items: Item[][] = [];
   dialog: Dialog | null = null;
   focusKeys: string[] | null = null;
-  benched = new Set<string>();
+  benched: Benched = new Map();
+  benchLookups = 0;
 
   constructor(board: Board, mine: boolean, showAll: boolean) {
     this.board = board;
@@ -113,16 +116,28 @@ export class Tui implements DialogHost {
     this.focusKeys = keys;
   }
 
-  async loadBenches(): Promise<void> {
-    this.benched = keysWithBench(await listBenches(), this.board.keys());
-  }
-
-  /** Mark the cards that have a bench, without holding up the board. */
+  /** Mark the cards that have a bench, without holding up the board: first the benches, then their merge requests. */
   showBenches(): void {
-    void this.loadBenches().then(() => {
+    const lookup = ++this.benchLookups;
+    const show = (benched: Benched) => {
+      if (lookup !== this.benchLookups) return; // a newer lookup is under way
+      this.benched = benched;
       this.rebuildKeepingCursor();
       if (!this.busy) this.draw();
-    });
+    };
+    const keys = this.board.keys();
+    void listBenches({ keys }).then((benches) => {
+      // keep merge requests already known until the slower lookup brings fresh ones
+      const quick = benchedIssues(benches, keys);
+      for (const [key, mark] of this.benched) {
+        if (!mark.mr) continue;
+        const now = quick.get(key);
+        if (now) now.mr ??= mark.mr;
+        else if (benches.some((b) => branchHasKey(b.branch, key))) quick.set(key, { bench: false, mr: mark.mr });
+      }
+      show(quick);
+      return listBenches({ mrs: true, keys });
+    }).then((benches) => show(benchedIssues(benches, keys)));
   }
 
   async perform(progress: string, work: () => Promise<string>, failure: (message: string) => string): Promise<void> {
@@ -223,7 +238,7 @@ export class Tui implements DialogHost {
     this.draw();
     try {
       await this.board.reload();
-      await this.loadBenches();
+      this.showBenches();
       this.msg = "refreshed";
     } catch (e) { // keep the old data on network trouble
       this.msg = `refresh failed: ${(e as Error).message}`;
@@ -258,6 +273,7 @@ export class Tui implements DialogHost {
     rows[0] = headerLine(this.board, this.mine, shown, this.points);
     this.items.forEach((items, c) => {
       const x = c * (this.colW + GAP);
+      const slot = columnSlot(c, n);
       const total = this.buckets[c].length + (c === n - 1 ? this.hidden : 0);
       place(rows[2], x, sliceLine(columnHeaderLine(this.board, c, total, this.points[c] ?? 0, c === this.col), 0, this.colW));
 
@@ -289,10 +305,10 @@ export class Tui implements DialogHost {
       let rule = "─".repeat(this.colW);
       if (top > 0) rule = `${rule.slice(0, -1)}↑`;
       if (top + viewH < lines.length) rule = `${rule.slice(0, -2)}↓${rule.slice(-1)}`;
-      place(rows[3], x, [[rule, c === this.col ? `fg${c}` : `rule${c}`]]);
+      place(rows[3], x, [[rule, c === this.col ? `fg${slot}` : `rule${slot}`]]);
 
       lines.slice(top, top + viewH).forEach(([line, selected, isCard], r) => {
-        place(rows[bodyTop + r], x, isCard ? decorate(line, c, this.colW, selected) : line);
+        place(rows[bodyTop + r], x, isCard ? decorate(line, slot, this.colW, selected) : line);
       });
     });
     rows[h - 1] = this.footer();
@@ -314,7 +330,6 @@ export class Tui implements DialogHost {
       this.draw();
       return;
     }
-    if (str === "q" || key.name === "escape") process.exit(0);
     // special keys by name, letters as typed (so g and G differ)
     const name = key.name && key.name.length > 1 ? key.name : str;
     const actions: Record<string, () => void | Promise<void>> = {
@@ -328,7 +343,11 @@ export class Tui implements DialogHost {
       r: () => this.refresh(), m: () => this.toggleMine(), a: () => this.toggleDone(),
       s: () => this.openDialog(openStatus), A: () => this.openDialog(openAssign),
       p: () => this.openDialog(openPoints), c: () => this.openDialog(openSubtasks),
-      b: () => this.benchCurrent(), B: () => this.openDialog(openBenchRepo),
+      "?": () => {
+        this.dialog = openHelp(this);
+      },
+      b: () => this.benchCurrent(), B: () => this.openDialog(openBenchRepo), D: () => this.openDialog(openRemoveBench),
+      M: () => this.openDialog(openMergeRequest),
     };
     const action = name ? actions[name] : undefined;
     if (!action) return;
@@ -344,7 +363,7 @@ export class Tui implements DialogHost {
       stdin.setRawMode(false);
       stdout.write("\x1b[?7h\x1b[?25h\x1b[?1049l");
     });
-    // readline only reads escapeCodeTimeout from its interface argument; 50ms makes esc quit promptly
+    // readline only reads escapeCodeTimeout from its interface argument; 50ms makes esc close dialogs promptly
     emitKeypressEvents(stdin, { escapeCodeTimeout: 50 } as never);
     stdin.setRawMode(true);
     stdin.resume();

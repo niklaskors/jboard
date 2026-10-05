@@ -1,5 +1,6 @@
 // Dialogs: modal boxes over the board that take all keys until they close.
 
+import type { Benched } from "../bench.ts";
 import type { Board } from "../board.ts";
 import { lineLen, overlay, shorten, sliceLine, type Line, type Segment, type Style } from "../render/line.ts";
 import { theme } from "../render/theme.ts";
@@ -32,10 +33,10 @@ export interface DialogHost {
   expand(cardKey: string): void;
   /** Put the cursor on the first of these issues after the change, instead of where it was. */
   focus(...keys: string[]): void;
-  /** Issues that have a bench (a worktree made by the bench tool). */
-  readonly benched: Set<string>;
-  /** Look up which issues have a bench again. */
-  loadBenches(): Promise<void>;
+  /** Issues that have a bench (a worktree made by the bench tool), with its merge request. */
+  readonly benched: Benched;
+  /** Look up which issues have a bench again, in the background, and redraw. */
+  showBenches(): void;
 }
 
 /** A printable character typed into a text field. */

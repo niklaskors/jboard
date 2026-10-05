@@ -42,6 +42,7 @@ jboard -m           # only cards assigned to me (or with a subtask of mine)
 jboard -p           # print the board once, e.g. to pipe it somewhere
 jboard -w           # open the board in the browser
 jboard -t day       # light theme
+jboard --columns "To Do,Done"   # only these columns of the board
 jboard -h           # all options
 ```
 
@@ -59,11 +60,14 @@ jboard -h           # all options
 | `c` | Create subtasks: type or paste a list, one per line, `Ctrl+S` to create |
 | `b` | Open the issue's bench in a new terminal tab, making it first in the default repo (see [Benches](#benches)) |
 | `B` | The same, choosing the repo first |
+| `M` | Open the merge request (or pull request) of the issue's bench in the browser |
+| `D` | Remove one of the issue's benches, keeping or deleting its local branch |
 | `o` / `w` | Open the selected issue / the board in the browser |
 | `m` | Toggle "only mine" |
 | `a` | Show all done cards instead of the latest 5 |
 | `r` | Reload from Jira |
-| `q` / `Esc` | Quit |
+| `?` | Show all keys |
+| `Ctrl+C` | Quit |
 
 Dialogs filter as you type; `Esc` closes them without changing anything.
 
@@ -74,6 +78,7 @@ Dialogs filter as you type; `Esc` closes them without changing anything.
 | `JIRA_SERVER` | Base URL of your Jira (required) |
 | `JIRA_API_TOKEN` | Personal access token, sent as a bearer token (required) |
 | `JIRA_BOARD_ID` | Board to show; or pass `--board <id>` |
+| `JBOARD_COLUMNS` | The board's columns to show, comma separated, e.g. `To Do,In Progress,Done` (default: all); or pass `--columns`. Cards in other columns are left out |
 | `JBOARD_THEME` | `night` (default), `day` or `classic` |
 | `JIRA_SSO_URL` | Page that redoes your single sign-on, see below (default: `$JIRA_SERVER/login.jsp`) |
 | `JBOARD_BENCH` | The bench command for `b` and `B` (default `bench`) |
@@ -100,7 +105,11 @@ branch its own git worktree with packages installed, from a pool of ready ones. 
   (`feat/PROJ-123-short-summary`, or `fix/…` for bugs; see `JBOARD_BRANCH`)
 - Subtasks are worked on in their story's bench, unless they have one of their own
 - `B` picks the repo, so a story that needs changes in two repos can have a bench in each; ✓ marks where it has one
-- Cards with a bench are marked with ⎇
+- `D` removes a bench; bench refuses while it has uncommitted changes or commits that aren't pushed
+- Cards with a bench are marked with ⎇, followed by its merge request (e.g. `⎇ !123`) once bench has looked it up
+  (with glab for GitLab, gh for GitHub), coloured by state: open, draft, merged or closed; `M` opens it
+- Removing a bench keeps its merge request: the card still shows it (without ⎇) and `M` still opens it.
+  `b` makes a bench on the same branch again
 - The tab opens however bench is set up to open tabs (its `"tab"` and `"command"` settings)
 
 ### Errors

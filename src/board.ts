@@ -31,8 +31,12 @@ export class Board {
   cards: Card[] = [];
   pointsField: string | null = null; // e.g. customfield_10002 "Story Points"
 
-  constructor(boardId: string) {
+  /** Names of the board columns to show (any case), or all of them. */
+  only: string[];
+
+  constructor(boardId: string, only: string[] = []) {
     this.boardId = boardId;
+    this.only = only;
   }
 
   async reload(): Promise<void> {
@@ -81,8 +85,17 @@ export class Board {
     }
     for (const card of cards) card.subs = subs.get(card.key) ?? [];
 
+    // cards whose column isn't shown are left out, like cards with a status on no column
+    const all = config.columnConfig.columns;
+    const wanted = new Set(this.only.map((name) => name.toLowerCase()));
+    const unknown = this.only.filter((name) => !all.some((c) => c.name.toLowerCase() === name.toLowerCase()));
+    if (unknown.length) {
+      throw new JiraError(`no column ${unknown.map((n) => `"${n}"`).join(", ")} on this board; it has: ${all.map((c) => c.name).join(", ")}`);
+    }
+    const columns = all.filter((c) => !wanted.size || wanted.has(c.name.toLowerCase()));
+
     // only replace state once everything loaded, so a failed refresh keeps the old board
-    this.columns = config.columnConfig.columns.map((c) => ({ name: c.name, statuses: new Set(c.statuses.map((s) => s.id)) }));
+    this.columns = columns.map((c) => ({ name: c.name, statuses: new Set(c.statuses.map((s) => s.id)) }));
     this.sprint = sprint;
     this.me = me.name;
     this.meUser = { name: me.name, displayName: me.displayName };

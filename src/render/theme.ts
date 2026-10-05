@@ -8,7 +8,14 @@ const DIM = "\x1b[2m";
 const ITALIC = "\x1b[3m";
 const REVERSE = "\x1b[7m";
 const ACCENT_SLOTS = 12; // per-column style names (col3, pill3, ...) exist for this many columns
-export const PEOPLE_SLOTS = 8;
+
+/**
+ * The style slot of a board column: its index, except that the last column (done) always has the "done" slot,
+ * so done is green however many columns the board shows. Styles are e.g. `col${slot}` and `pill${slot}`.
+ */
+export const columnSlot = (idx: number, count: number) => (idx === count - 1 ? "done" : String(idx));
+/** Distinct colours for people; with this many or fewer on the board, everyone has their own. */
+export const PEOPLE_SLOTS = 11;
 
 /** 24-bit colour where the terminal supports it, otherwise the nearest of the 256 xterm colours. */
 const TRUECOLOR = /truecolor|24bit/i.test(process.env.COLORTERM ?? "")
@@ -36,7 +43,8 @@ const bg = (hex: string) => rgb(hex, 48);
 interface Palette {
   text: string; muted: string; faint: string; // foregrounds
   card: string; cardSel: string; panel: string; optSel: string; // backgrounds
-  accents: string[]; // per board column: to do, in progress, in review, done, ...
+  accents: string[]; // per board column: to do, in progress, in review, ...
+  done: string; // the last column
   onAccent: string; // text on an accent-filled pill
   story: string; task: string; bug: string; epic: string;
   people: string[];
@@ -55,10 +63,13 @@ export interface Theme {
 const NIGHT: Palette = {
   text: "#cdd6e0", muted: "#8b98a5", faint: "#5d6873",
   card: "#1d232b", cardSel: "#2e3743", panel: "#232a33", optSel: "#3a4656",
-  accents: ["#8899aa", "#e0af4f", "#b48ef0", "#5fb86a", "#5aa2f0", "#e27aae"],
+  accents: ["#8899aa", "#e0af4f", "#b48ef0", "#5aa2f0", "#e27aae", "#56c2c2"],
+  done: "#5fb86a",
   onAccent: "#12161c",
   story: "#5fb86a", task: "#5aa2f0", bug: "#ec6a5e", epic: "#b48ef0",
-  people: ["#f2a65a", "#6fb8ff", "#d8b4fe", "#8fd694", "#f7768e", "#7dcfff", "#e9c46a", "#f5a3c7"],
+  // around the colour wheel, none close to `me`; neighbours differ, as a clash moves someone to the next one
+  people: ["#ff7a7a", "#e9c46a", "#6fd08c", "#7a9bff", "#e48ae0", "#ffa257", "#c3e88d", "#4fd6be", "#c099ff", "#ff8fc6",
+    "#d7b98e"],
   me: "#7dcfff", points: "#a9d4ff", pointsBg: "#22344a", track: "#38424e", info: "#5aa2f0",
 };
 
@@ -66,10 +77,12 @@ const NIGHT: Palette = {
 const DAY: Palette = {
   text: "#1f2328", muted: "#59636e", faint: "#8c959f",
   card: "#f2f4f7", cardSel: "#dbe5f2", panel: "#f6f8fa", optSel: "#cfe0f7",
-  accents: ["#6e7781", "#b07a00", "#8250df", "#1a7f37", "#0969da", "#bf3989"],
+  accents: ["#6e7781", "#b07a00", "#8250df", "#0969da", "#bf3989", "#0a6c74"],
+  done: "#1a7f37",
   onAccent: "#ffffff",
   story: "#1a7f37", task: "#0969da", bug: "#cf222e", epic: "#8250df",
-  people: ["#bc4c00", "#0550ae", "#8250df", "#116329", "#a40e26", "#0a6c74", "#7d4e00", "#99286e"],
+  people: ["#c62828", "#9a6700", "#1a7f37", "#3f3fbf", "#a0289a", "#c45a00", "#5a7d00", "#00796b", "#7b3fd0", "#c2185b",
+    "#8d5a3b"],
   me: "#0969da", points: "#0550ae", pointsBg: "#ddf4ff", track: "#d0d7de", info: "#0969da",
 };
 
@@ -82,10 +95,10 @@ function paletteTheme(p: Palette): Theme {
     rev: BOLD + bg(p.optSel) + fg(p.text), panel: bg(p.panel) + fg(p.text),
     box: bg(p.panel) + fg(p.muted), boxtitle: BOLD + bg(p.panel) + fg(p.text),
     key: BOLD + bg(p.cardSel) + fg(p.text), keylabel: fg(p.muted), msg: BOLD + fg(p.text),
-    progress: fg(p.accents[3 % p.accents.length]), track: fg(p.track), empty: ITALIC + fg(p.faint),
+    progress: fg(p.done), track: fg(p.track), empty: ITALIC + fg(p.faint),
   };
-  for (let i = 0; i < ACCENT_SLOTS; i++) {
-    const accent = p.accents[i % p.accents.length];
+  const slots: [string, string][] = Array.from({ length: ACCENT_SLOTS }, (_, i) => [String(i), p.accents[i % p.accents.length]]);
+  for (const [i, accent] of [...slots, ["done", p.done]]) {
     Object.assign(codes, {
       [`col${i}`]: BOLD + fg(accent), [`fg${i}`]: fg(accent), [`bar${i}`]: fg(accent),
       [`rule${i}`]: fg(p.track), [`pill${i}`]: BOLD + bg(accent) + fg(p.onAccent),
@@ -100,15 +113,16 @@ function paletteTheme(p: Palette): Theme {
 
 /** The original look: the 16 basic terminal colours, reverse video for selection. */
 function classicTheme(): Theme {
-  const cols = ["\x1b[39m", "\x1b[33m", "\x1b[35m", "\x1b[32m", "\x1b[36m", "\x1b[34m"];
+  const cols = ["\x1b[39m", "\x1b[33m", "\x1b[35m", "\x1b[36m", "\x1b[34m"];
+  const green = "\x1b[32m";
   const codes: Record<string, string> = {
     text: "", dim: DIM, name: DIM, bold: BOLD, title: BOLD, me: `${BOLD}\x1b[36m`,
     story: `${BOLD}\x1b[32m`, task: `${BOLD}\x1b[34m`, bug: `${BOLD}\x1b[31m`, epic: `${BOLD}\x1b[36m`,
     points: "\x1b[36m", warn: `${BOLD}\x1b[31m`, accent: BOLD, rev: REVERSE, panel: "", box: BOLD, boxtitle: BOLD,
     key: REVERSE, keylabel: DIM, msg: "", progress: "\x1b[32m", track: DIM, empty: DIM,
   };
-  for (let i = 0; i < ACCENT_SLOTS; i++) {
-    const c = cols[i % cols.length];
+  const slots: [string, string][] = Array.from({ length: ACCENT_SLOTS }, (_, i) => [String(i), cols[i % cols.length]]);
+  for (const [i, c] of [...slots, ["done", green]]) {
     Object.assign(codes, { [`col${i}`]: BOLD + c, [`fg${i}`]: c, [`bar${i}`]: c, [`rule${i}`]: c, [`pill${i}`]: BOLD + c + REVERSE });
   }
   for (let i = 0; i < PEOPLE_SLOTS; i++) codes[`person${i}`] = DIM;

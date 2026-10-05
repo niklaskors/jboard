@@ -1,7 +1,7 @@
 // Command line: options, help text and startup.
 
 import { parseArgs } from "node:util";
-import { keysWithBench, listBenches } from "./bench.ts";
+import { benchedIssues, listBenches } from "./bench.ts";
 import { Board } from "./board.ts";
 import { openUrl } from "./browser.ts";
 import { boardUrl, SERVER, TOKEN } from "./config.ts";
@@ -10,10 +10,12 @@ import { printBoard } from "./render/print.ts";
 import { THEME_NAMES, useTheme } from "./render/theme.ts";
 import { Tui } from "./tui/app.ts";
 
-const USAGE = `Usage: jboard [-m] [-a] [-b BOARD_ID] [-w] [-p] [-t THEME]
+const USAGE = `Usage: jboard [-m] [-a] [-b BOARD_ID] [--columns NAMES] [-w] [-p] [-t THEME]
   -m, --mine     start with only my cards (assigned to me, or with a subtask of mine)
   -a, --all      show every card in the done column, not just the 5 latest
   -b, --board    board id, the rapidView=<id> in the board's URL (default: $JIRA_BOARD_ID)
+      --columns  the board's columns to show, comma separated, e.g. "To Do,In Progress,Done"
+                 (default: $JBOARD_COLUMNS, else all); cards in other columns are left out
   -w, --web      open the board in the browser instead
   -p, --print    print the board once instead of the interactive view
                  (automatic when output is not a terminal)
@@ -31,13 +33,18 @@ Keys: h/j/k/l or arrows  move          enter/space  expand/collapse subtasks
       b                  open the selected issue's bench (its own git worktree) in a new terminal tab,
                          making it in the default repo first; subtasks use their story's bench
       B                  the same, choosing the repo first
+      M                  open the merge request of the selected issue's bench in the browser
+      D                  remove one of the selected issue's benches, keeping or deleting its branch
+                         (refused while it has uncommitted or unpushed work)
       m                  toggle mine   a            toggle all done cards
-      r                  refresh       q/esc        quit
+      r                  refresh       ctrl+c       quit
+      ?                  show all keys
 
 Environment:
   JIRA_SERVER     base URL, e.g. https://jira.example.com/jira            (required)
   JIRA_API_TOKEN  personal access token, sent as a bearer token           (required)
   JIRA_BOARD_ID   board to show, the rapidView=<id> in the board's URL     (or use --board)
+  JBOARD_COLUMNS  columns to show, comma separated                        (or use --columns)
   JIRA_SSO_URL    page that redoes your SSO sign-in when Jira suddenly refuses the token
                   (default: $JIRA_SERVER/login.jsp)
   JBOARD_THEME    night, day or classic
@@ -53,6 +60,7 @@ async function main(): Promise<void> {
         mine: { type: "boolean", short: "m" },
         all: { type: "boolean", short: "a" },
         board: { type: "string", short: "b" },
+        columns: { type: "string" },
         web: { type: "boolean", short: "w" },
         print: { type: "boolean", short: "p" },
         theme: { type: "string", short: "t" },
@@ -81,10 +89,11 @@ async function main(): Promise<void> {
     return;
   }
 
-  const board = new Board(boardId);
+  const columns = (values.columns ?? process.env.JBOARD_COLUMNS ?? "").split(",").map((c) => c.trim()).filter(Boolean);
+  const board = new Board(boardId, columns);
   await board.reload();
   if (values.print || !process.stdout.isTTY || !process.stdin.isTTY) {
-    printBoard(board, !!values.mine, !!values.all, keysWithBench(await listBenches(), board.keys()));
+    printBoard(board, !!values.mine, !!values.all, benchedIssues(await listBenches({ mrs: true, keys: board.keys() }), board.keys()));
   } else {
     new Tui(board, !!values.mine, !!values.all).start();
   }
