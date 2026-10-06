@@ -6,7 +6,7 @@ import type { Item } from "../render/layout.ts";
 import type { Dialog, DialogHost } from "./dialog.ts";
 import { Picker, type PickerOption } from "./picker.ts";
 
-const rejects = (t: Transition) => /reject/i.test(`${t.name} ${t.to.name}`);
+export const rejects = (t: Transition) => /reject/i.test(`${t.name} ${t.to.name}`);
 
 export function openStatus(host: DialogHost, item: Item): Dialog {
   const { issue } = item;

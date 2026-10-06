@@ -1,37 +1,58 @@
-// `b` / `B`: open the selected issue's bench (its own git worktree, made by the bench tool) in a new terminal tab.
-// `M`: open the merge request of its bench. `D`: remove one of its benches.
+// `b` / `B`: open the selected issue's bench (its own git worktree, made by the bench tool) in a new terminal tab;
+// on a story with subtasks, choosing the story or one of its subtasks first. `M`: open the merge request of its
+// bench. `D`: remove one of its benches.
 
 import { homedir } from "node:os";
 import { benchesFor, listRepos, mrStatus, openBench, removeBench, type Bench, type BenchRepo, type MergeRequest } from "../bench.ts";
 import { openUrl } from "../browser.ts";
-import type { Issue } from "../jira/types.ts";
+import type { Card, Issue } from "../jira/types.ts";
 import type { Item } from "../render/layout.ts";
 import type { Dialog, DialogHost } from "./dialog.ts";
 import { Picker } from "./picker.ts";
 
-/** Subtasks are worked on in their story's bench, unless they have one of their own. */
+/** For M and D: a subtask without a bench of its own goes by its story's. */
 const benchIssue = (host: DialogHost, item: Item): Issue =>
   item.parent && !host.benched.has(item.issue.key) ? item.parent : item.issue;
 
+/** What `b` and `B` can make a bench for: a subtask itself; a story, or one of its subtasks. */
+export const benchChoices = (item: Item): Issue[] => (item.parent ? [item.issue] : [item.issue, ...(item.issue as Card).subs]);
+
+/** On a story with subtasks: whether the bench is for the story or one of its subtasks, then `next`. */
+export function openBenchIssue(host: DialogHost, story: Issue, choices: Issue[], next: (issue: Issue) => void | Promise<void>): Dialog {
+  return new Picker(host, {
+    title: `Bench for ${story.key} or one of its subtasks`,
+    action: "choose",
+    options(query) {
+      const q = query.trim().toLowerCase();
+      return choices.filter((i) => !q || `${i.key} ${i.fields.summary}`.toLowerCase().includes(q)).map((issue) => ({
+        label: `${issue === story ? "" : "↳ "}${issue.key}  ${issue.fields.summary}`,
+        note: issue === story ? "the story" : issue.fields.status.name,
+        current: !!host.benched.get(issue.key)?.bench, // ✓ has a bench
+        dim: issue !== story && host.board.isDone(issue),
+        choose: async () => next(issue),
+      }));
+    },
+    empty: () => "no matching issue",
+    loading: () => false,
+  });
+}
+
 /** `b`: open the issue's bench, making it in `repo` (or bench's default) if it has none. */
-export function startBench(host: DialogHost, item: Item, repo?: string): Promise<void> {
-  const issue = benchIssue(host, item);
-  const via = issue === item.issue ? "" : ` (for its subtask ${item.issue.key})`;
+export function startBench(host: DialogHost, issue: Issue, repo?: string): Promise<void> {
   return host.perform(`${issue.key}: opening its bench…`, async () => {
     const message = await openBench(issue, repo, (line) => {
       host.msg = `${issue.key}: ${line}`;
       host.draw();
     });
     host.showBenches();
-    return message + via;
+    return message;
   }, (message) => `bench: ${message}`);
 }
 
 const tilde = (path: string) => path.startsWith(homedir()) ? `~${path.slice(homedir().length)}` : path;
 
 /** `B`: choose the repo first, e.g. for a story that needs changes in two repos. */
-export function openBenchRepo(host: DialogHost, item: Item): Dialog {
-  const issue = benchIssue(host, item);
+export function openBenchRepo(host: DialogHost, issue: Issue): Dialog {
   let repos: BenchRepo[] = [];
   let benches: Bench[] = [];
   let loading = true;
@@ -45,7 +66,7 @@ export function openBenchRepo(host: DialogHost, item: Item): Dialog {
         label: r.name,
         note: [r.isDefault && "default", tilde(r.path)].filter(Boolean).join(" · "),
         current: benches.some((b) => b.repo === r.name && !b.removed),
-        choose: () => startBench(host, item, r.name),
+        choose: () => startBench(host, issue, r.name),
       }));
     },
     empty: () => (loading ? "loading repos…" : repos.length ? "no matching repo" : "no repos yet: bench add <path or url>"),

@@ -7,13 +7,14 @@ const BOLD = "\x1b[1m";
 const DIM = "\x1b[2m";
 const ITALIC = "\x1b[3m";
 const REVERSE = "\x1b[7m";
+const UNDERLINE = "\x1b[4m";
 const ACCENT_SLOTS = 12; // per-column style names (col3, pill3, ...) exist for this many columns
 
 /**
  * The style slot of a board column: its index, except that the last column (done) always has the "done" slot,
- * so done is green however many columns the board shows. Styles are e.g. `col${slot}` and `pill${slot}`.
+ * so done is green however many columns the board shows (the backlog's one column isn't done). Styles are e.g. `col${slot}` and `pill${slot}`.
  */
-export const columnSlot = (idx: number, count: number) => (idx === count - 1 ? "done" : String(idx));
+export const columnSlot = (idx: number, count: number) => (idx === count - 1 && count > 1 ? "done" : String(idx));
 /** Distinct colours for people; with this many or fewer on the board, everyone has their own. */
 export const PEOPLE_SLOTS = 11;
 
@@ -55,7 +56,7 @@ export interface Theme {
   cards: boolean; // tinted card blocks with an accent bar; false = classic reverse-video selection
   corners: string; // dialog corners: top-left, top-right, bottom-left, bottom-right
   icons: { story: string; task: string; bug: string; epic: string; other: string; dot: string;
-    sprint: string; info: string; full: string; empty: string; bench: string };
+    sprint: string; info: string; full: string; empty: string; bench: string; bell: string };
   codes: Record<string, string>; // style name -> escape codes
 }
 
@@ -96,6 +97,9 @@ function paletteTheme(p: Palette): Theme {
     box: bg(p.panel) + fg(p.muted), boxtitle: BOLD + bg(p.panel) + fg(p.text),
     key: BOLD + bg(p.cardSel) + fg(p.text), keylabel: fg(p.muted), msg: BOLD + fg(p.text),
     progress: fg(p.done), track: fg(p.track), empty: ITALIC + fg(p.faint),
+    italic: ITALIC, code: fg(p.points), link: UNDERLINE + fg(p.info), // descriptions
+    shade: fg(p.track), shadebg: bg(p.card) + fg(p.track), // the board behind a dialog
+    alert: BOLD + bg(p.bug) + fg(p.onAccent), // notifications waiting
   };
   const slots: [string, string][] = Array.from({ length: ACCENT_SLOTS }, (_, i) => [String(i), p.accents[i % p.accents.length]]);
   for (const [i, accent] of [...slots, ["done", p.done]]) {
@@ -107,7 +111,7 @@ function paletteTheme(p: Palette): Theme {
   for (let i = 0; i < PEOPLE_SLOTS; i++) codes[`person${i}`] = fg(p.people[i % p.people.length]);
   return {
     cards: true, corners: "╭╮╰╯", codes,
-    icons: { story: "●", task: "■", bug: "▲", epic: "◆", other: "•", dot: "●", sprint: "◆", info: "●", full: "━", empty: "━", bench: "⎇" },
+    icons: { story: "●", task: "■", bug: "▲", epic: "◆", other: "•", dot: "●", sprint: "◆", info: "●", full: "━", empty: "━", bench: "⎇", bell: "🔔" },
   };
 }
 
@@ -120,6 +124,8 @@ function classicTheme(): Theme {
     story: `${BOLD}\x1b[32m`, task: `${BOLD}\x1b[34m`, bug: `${BOLD}\x1b[31m`, epic: `${BOLD}\x1b[36m`,
     points: "\x1b[36m", warn: `${BOLD}\x1b[31m`, accent: BOLD, rev: REVERSE, panel: "", box: BOLD, boxtitle: BOLD,
     key: REVERSE, keylabel: DIM, msg: "", progress: "\x1b[32m", track: DIM, empty: DIM,
+    italic: ITALIC, code: "\x1b[36m", link: UNDERLINE,
+    shade: DIM, shadebg: DIM, alert: `${BOLD}\x1b[31m${REVERSE}`,
   };
   const slots: [string, string][] = Array.from({ length: ACCENT_SLOTS }, (_, i) => [String(i), cols[i % cols.length]]);
   for (const [i, c] of [...slots, ["done", green]]) {
@@ -128,7 +134,7 @@ function classicTheme(): Theme {
   for (let i = 0; i < PEOPLE_SLOTS; i++) codes[`person${i}`] = DIM;
   return {
     cards: false, corners: "┌┐└┘", codes,
-    icons: { story: "S", task: "T", bug: "B", epic: "E", other: "•", dot: "", sprint: "", info: "", full: "█", empty: "░", bench: "*" },
+    icons: { story: "S", task: "T", bug: "B", epic: "E", other: "•", dot: "", sprint: "", info: "", full: "█", empty: "░", bench: "*", bell: "!" },
   };
 }
 
@@ -146,6 +152,11 @@ export function useTheme(name: string): boolean {
 
 function styleCode(style: Style): string {
   return style ? style.split("+").map((s) => theme.codes[s] ?? "").join("") : "";
+}
+
+/** A line greyed out, keeping only whether its parts have a background: the board behind a dialog. */
+export function shade(line: Line): Line {
+  return line.map(([text, style]) => [text, /\x1b\[(48;|7m)/.test(styleCode(style)) ? "shadebg" : "shade"]);
 }
 
 /** Render a line, padded with spaces to `width`. */

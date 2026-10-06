@@ -31,6 +31,8 @@ export interface Column {
 export interface Sprint {
   id: number;
   name: string;
+  state?: "active" | "future" | "closed";
+  startDate?: string;
   endDate?: string;
 }
 

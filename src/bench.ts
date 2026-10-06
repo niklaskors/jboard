@@ -2,6 +2,7 @@
 // jboard only runs its command line, so bench stays optional: without it, the b and B keys say how to get it.
 
 import { spawn } from "node:child_process";
+import { askpassEnv } from "./askpass.ts";
 import type { Issue } from "./jira/types.ts";
 
 /** The bench command; set JBOARD_BENCH when it isn't on the PATH as `bench`. */
@@ -54,7 +55,8 @@ export interface BenchRepo {
 function run(args: string[], progress?: (line: string) => void): Promise<string> {
   return new Promise((resolve, reject) => {
     // stdin stays ours: the board has the terminal in raw mode
-    const child = spawn(BENCH, args, { stdio: ["ignore", "pipe", "pipe"] });
+    // questions from the git and ssh it runs go to the board, not the terminal (see askpass.ts)
+    const child = spawn(BENCH, args, { stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ...askpassEnv() } });
     let out = "";
     let err = "";
     child.stdout.on("data", (chunk: Buffer) => (out += chunk));

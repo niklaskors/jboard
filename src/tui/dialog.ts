@@ -10,6 +10,7 @@ export interface Key {
   name?: string;
   ctrl?: boolean;
   meta?: boolean;
+  shift?: boolean;
 }
 
 export interface Dialog {
@@ -29,6 +30,12 @@ export interface DialogHost {
   draw(): void;
   /** Close the dialog and run a Jira change while the board waits; shows the returned message or the failure. */
   perform(progress: string, work: () => Promise<string>, failure: (message: string) => string): Promise<void>;
+  /** Leave the board screen while `run` uses the terminal (e.g. an editor), then come back. */
+  outside<T>(run: () => T): T;
+  /** Load the sprint and the backlog again, e.g. after an issue moved between them. */
+  reload(): Promise<void>;
+  /** Show an issue's change (e.g. its new status) on the board, keeping the cursor where it is. */
+  changed(): void;
   /** Show a card's subtasks after the change. */
   expand(cardKey: string): void;
   /** Put the cursor on the first of these issues after the change, instead of where it was. */
@@ -43,17 +50,29 @@ export interface DialogHost {
 export const isTyping = (str: string | undefined, key: Key) =>
   !!str && str.length === 1 && str >= " " && !key.ctrl && !key.meta;
 
+/** A dialog box's size: its widest (borders included), and the space between its sides and the text
+ * (`pad` columns left and right, `padY` blank lines above and below). */
+export interface BoxShape {
+  max?: number;
+  pad?: number;
+  padY?: number;
+}
+
+const boxWidth = (width: number, shape: BoxShape) => Math.min(shape.max ?? 64, width - 4);
+
 /** Width available for text inside a dialog box. */
-export const boxInner = (width: number) => Math.min(64, width - 4) - 4;
+export const boxInner = (width: number, shape: BoxShape = {}) => boxWidth(width, shape) - 2 - 2 * (shape.pad ?? 1);
 
 export type BoxRow = { line: Line; style?: Style } | "rule";
 
 /** Draw a bordered box over the board rows; "rule" is a separator line. */
 export function drawBox(rows: Line[], screen: { width: number; height: number }, title: string,
-  body: BoxRow[], footer: string): void {
+  body: BoxRow[], footer: string, shape: BoxShape = {}): void {
   const { width: w, height: h } = screen;
-  const inner = boxInner(w);
-  const boxW = inner + 4;
+  const inner = boxInner(w, shape);
+  const boxW = boxWidth(w, shape);
+  const pad = " ".repeat(shape.pad ?? 1);
+  const space: BoxRow[] = Array.from({ length: shape.padY ?? 0 }, () => ({ line: [] }));
   const x = Math.max(0, Math.floor((w - boxW) / 2));
   const [tl, tr, bl, br] = theme.corners;
   const border = (left: string, text: string, right: string, textStyle: string): Line => {
@@ -64,12 +83,13 @@ export function drawBox(rows: Line[], screen: { width: number; height: number },
   const row = (content: Line, style: Style = null): Line => {
     const text = sliceLine(content, 0, inner);
     const padded: Line = [...text, [" ".repeat(inner - lineLen(text)), null]];
-    return [["│ ", "box"], ...padded.map(([t, s]): Segment => [t, ["panel", s, style].filter(Boolean).join("+")]), [" │", "box"]];
+    return [[`│${pad}`, "box"], ...padded.map(([t, s]): Segment => [t, ["panel", s, style].filter(Boolean).join("+")]),
+      [`${pad}│`, "box"]];
   };
 
   const lines: Line[] = [
     border(tl, shorten(title, boxW - 6), tr, "boxtitle"),
-    ...body.map((b) => (b === "rule" ? border("├", "", "┤", "box") : row(b.line, b.style ?? null))),
+    ...[...space, ...body, ...space].map((b) => (b === "rule" ? border("├", "", "┤", "box") : row(b.line, b.style ?? null))),
     border(bl, shorten(footer, boxW - 6), br, "box"),
   ];
   const y = Math.max(1, Math.floor((h - lines.length) / 3));

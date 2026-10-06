@@ -3,7 +3,7 @@
 import { firstName, type Board } from "../board.ts";
 import { mrStatus, type Benched, type MergeRequest } from "../bench.ts";
 import type { Card, Issue, User } from "../jira/types.ts";
-import { fit, lineLen, shorten, wrap, type Line, type Segment } from "./line.ts";
+import { fit, lineLen, shorten, sliceLine, wrap, type Line, type Segment } from "./line.ts";
 import { columnSlot, PEOPLE_SLOTS, theme } from "./theme.ts";
 
 /** The style slot of a column on this board; see columnSlot. */
@@ -86,15 +86,45 @@ function benchMarker(benched: Benched, key: string): Line {
 /** Lines of summary on a card, below the line with its key; cards are this plus one line high. */
 const SUMMARY_LINES = 2;
 
-function cardLines(board: Board, card: Card, colIdx: number, width: number, expanded: boolean, benched: Benched): Line[] {
+/** Characters of summary a compact line keeps before giving up what is on its right. */
+const MIN_SUMMARY = 12;
+
+/**
+ * One line: `head`, the summary cut to fit, and against the right edge the first of `rights` that leaves room for
+ * some summary (fuller ones first), or nothing in a narrow column.
+ */
+function listLine(head: Line, summary: string, summaryStyle: string | null, rights: Line[], width: number): Line {
+  const right = rights.find((r) => lineLen(head) + 1 + MIN_SUMMARY + 1 + lineLen(r) <= width) ?? [];
+  const room = width - lineLen(head) - lineLen(right) - 2;
+  const text = room > 0 ? shorten(summary, room) : "";
+  const gap = " ".repeat(Math.max(1, width - lineLen(head) - 1 - text.length - lineLen(right)));
+  return sliceLine([...head, [" ", null], [text, summaryStyle], [gap, null], ...right], 0, width);
+}
+
+/** Where a compact line puts the points and the assignee, so they line up down the list. */
+const pointsCell = (board: Board, card: Card): Line => {
+  if (!board.pointsField || card.fields.issuetype.subtask) return [];
+  return card.points == null ? [["  ? pts", "dim"]] : [[`${formatPoints(card.points)} pts`.padStart(7), "points"]];
+};
+const nameCell = (board: Board, user: User | null): Line => [["  ", null], [firstName(user).padEnd(12), personStyle(board, user)]];
+
+/** `keyWidth`: in a compact list, keys are padded to this so the summaries line up. */
+function cardLines(board: Board, card: Card, colIdx: number, width: number, expanded: boolean, benched: Benched,
+  compact: boolean, keyWidth = 0): Line[] {
   const f = card.fields;
-  const left: Line = [typeIcon(f.issuetype.name), [" ", null], [card.key, `col${slot(board, colIdx)}`]];
+  const left: Line = [typeIcon(f.issuetype.name), [" ", null], [compact ? card.key.padEnd(keyWidth) : card.key, `col${slot(board, colIdx)}`]];
   left.push(...benchMarker(benched, card.key));
+  if (compact) { // one line, like a list: key, summary, points, assignee
+    if (card.subs.length) left.push([` ${expanded ? "▾" : "▸"}`, "dim"]);
+    const points = pointsCell(board, card);
+    const name = nameCell(board, f.assignee);
+    return [listLine(left, f.summary, null, [[...points, ...name], name], width)];
+  }
   if (board.pointsField && !f.issuetype.subtask) {
     left.push([" ", null], card.points == null ? ["? pts", "dim"] : [`${formatPoints(card.points)} pts`, "points"]);
   }
   if (card.subs.length) {
-    const done = card.subs.filter((s) => board.columnOf(s) === board.columns.length - 1).length;
+    const done = card.subs.filter((s) => board.isDone(s)).length;
     left.push([` ${expanded ? "▾" : "▸"} ${done}/${card.subs.length}`, "dim"]);
   }
   // always two summary lines, so every card is the same height
@@ -106,27 +136,32 @@ function cardLines(board: Board, card: Card, colIdx: number, width: number, expa
   ];
 }
 
-function subLines(board: Board, sub: Issue, width: number, benched: Benched): Line[] {
+function subLines(board: Board, sub: Issue, width: number, benched: Benched, compact: boolean): Line[] {
   const f = sub.fields;
   const cidx = board.columnOf(sub);
   const left: Line = [["  ↳ ", "dim"], [sub.key, "bold"]];
   left.push(...benchMarker(benched, sub.key));
   left.push([" ", null], [f.status.name, cidx >= 0 ? `fg${slot(board, cidx)}` : "dim"]);
+  if (compact) return [listLine(left, f.summary, "name", [nameCell(board, f.assignee)], width)];
   return [fit(left, firstName(f.assignee), width, personStyle(board, f.assignee)),
     [[`    ${shorten(f.summary, width - 4)}`, "name"]]];
 }
 
-/** Selectable items of one column: cards, followed by their subtasks when expanded; `benched` issues get a marker. */
+/**
+ * Selectable items of one column: cards, followed by their subtasks when expanded; `benched` issues get a marker.
+ * `compact`: a line per card and subtask, like a list, instead of cards.
+ */
 export function columnItems(board: Board, bucket: Card[], colIdx: number, width: number, expanded: Set<string>,
-  benched: Benched = new Map()): Item[] {
+  benched: Benched = new Map(), compact = false): Item[] {
   const items: Item[] = [];
+  const keyWidth = Math.max(0, ...bucket.map((card) => card.key.length));
   for (const card of bucket) {
     const isOpen = expanded.has(card.key) && card.subs.length > 0;
-    items.push({ issue: card, parent: null, lines: cardLines(board, card, colIdx, width, isOpen, benched) });
+    items.push({ issue: card, parent: null, lines: cardLines(board, card, colIdx, width, isOpen, benched, compact, keyWidth) });
     if (isOpen) {
-      for (const sub of card.subs) items.push({ issue: sub, parent: card, lines: subLines(board, sub, width, benched) });
+      for (const sub of card.subs) items.push({ issue: sub, parent: card, lines: subLines(board, sub, width, benched, compact) });
     }
-    items[items.length - 1].lines.push([]); // blank line between cards
+    if (!compact) items[items.length - 1].lines.push([]); // blank line between cards
   }
   return items;
 }
@@ -161,19 +196,35 @@ export function columnHeaderLine(board: Board, idx: number, count: number, point
   return [[` ${theme.icons.dot} `, `fg${s}`], [name, `col${s}`], [`  ${stats} `, "name"]];
 }
 
+const day = (date: string) => new Date(date).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+
+/** The sprints and the backlog as tabs, the shown one highlighted; names are cut to fit `width`. */
+export function tabsLine(names: string[], current: number, width: number): Line {
+  const room = Math.floor(width / Math.max(1, names.length)) - 3;
+  const line: Line = [];
+  names.forEach((name, i) => {
+    const label = ` ${shorten(name, Math.max(6, room))} `;
+    line.push(...(i ? [[" ", null] as Segment] : []), [label, i === current ? "key" : "name"]);
+  });
+  return line;
+}
+
 /** Sprint name, end date, days left and a story points progress bar. */
 export function headerLine(board: Board, mine: boolean, cards: number, points: number[]): Line {
   const { name, endDate } = board.sprint;
   const line: Line = theme.icons.sprint ? [[` ${theme.icons.sprint} `, "accent"]] : [];
   line.push([name, "title"]);
-  if (endDate) {
+  if (board.sprint.state === "future") {
+    if (board.sprint.startDate) line.push([`   starts ${day(board.sprint.startDate)}`, "name"]);
+  } else if (endDate) {
     const end = new Date(endDate);
     const days = Math.ceil((end.getTime() - Date.now()) / 86_400_000);
-    const when = end.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-    line.push([`   ends ${when} · `, "name"], [days >= 0 ? `${days}d left` : `${-days}d overdue`, days <= 2 ? "warn" : "name"]);
+    line.push([`   ends ${day(endDate)} · `, "name"], [days >= 0 ? `${days}d left` : `${-days}d overdue`, days <= 2 ? "warn" : "name"]);
   }
   const total = points.reduce((sum, p) => sum + p, 0);
-  if (board.pointsField && total > 0) {
+  if (board.kind === "backlog") {
+    if (board.pointsField && total > 0) line.push([`   ${formatPoints(total)} pts`, "name"]);
+  } else if (board.pointsField && total > 0) {
     const done = points[points.length - 1] ?? 0;
     const filled = Math.round((done / total) * 20);
     line.push(["   ", null], [theme.icons.full.repeat(filled), "progress"], [theme.icons.empty.repeat(20 - filled), "track"],
