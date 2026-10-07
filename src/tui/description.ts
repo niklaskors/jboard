@@ -4,6 +4,8 @@ import { spawnSync } from "node:child_process";
 import { accessSync, constants, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
+import { openUrl } from "../browser.ts";
+import { issueUrl } from "../config.ts";
 import { loadDescription, setField } from "../jira/api.ts";
 import type { Issue } from "../jira/types.ts";
 import type { Item } from "../render/layout.ts";
@@ -124,6 +126,9 @@ class DescriptionDialog implements Dialog {
       this.raw = !this.raw;
       this.top = 0;
       this.left = 0;
+    } else if (str === "w" || str === "o") {
+      openUrl(issueUrl(this.issue.key));
+      this.status = `opened ${this.issue.key} in the browser`;
     } else if (str === "e" && this.text !== null) await this.edit(this.text);
   }
 
@@ -162,7 +167,7 @@ class DescriptionDialog implements Dialog {
     const scroll = [all.length > this.visible() && "j/k", this.wide() && "h/l"].filter(Boolean).join(" ");
     const edit = this.text === null ? "" : `r ${this.raw ? "rendered" : "as written"} · e edit in ${EDITOR.split(" ")[0]} · `;
     drawBox(rows, this.host, `${this.issue.key}: ${this.issue.fields.summary}`, body,
-      `${scroll ? `${scroll} scroll · ` : ""}${edit}esc close`, SHAPE);
+      `${scroll ? `${scroll} scroll · ` : ""}${edit}w browser · esc close`, SHAPE);
   }
 }
 

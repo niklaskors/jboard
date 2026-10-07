@@ -19,7 +19,7 @@ const KEYS: [string, [string, string][]][] = [
     ["A", "assign (your team first, type to search)"],
     ["p", "story points (empty clears)"],
     ["c", "create subtasks, one per line"],
-    ["d", "description (e edits it in $EDITOR)"],
+    ["d", "description (e edits it in $EDITOR, w opens it in the browser)"],
     ["S", "move to a sprint or the backlog"],
     ["o", "open in the browser"],
   ]],

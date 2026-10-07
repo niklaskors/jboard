@@ -193,6 +193,15 @@ describe("d: description", () => {
     expect(board.screen()).not.toContain("╭─ PROJ-1");
   });
 
+  test("w opens the issue in the browser", async () => {
+    const board = await openBoard();
+    await board.press("d");
+    await board.waitFor("Users sign in with SSO.");
+    await board.press("w");
+    expect(board.screen()).toContain("opened PROJ-1 in the browser");
+    await expect.poll(opened).toEqual([`${jira.url}/browse/PROJ-1`]);
+  });
+
   test("e edits it in $EDITOR and saves it to Jira", async () => {
     const board = await openBoard();
     await board.press("d");
