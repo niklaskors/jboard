@@ -29,6 +29,7 @@ const KEYS: [string, [string, string][]][] = [
   ["Bench", [
     ["b", "open its bench in a new tab (made if needed); a story asks: it or a subtask"],
     ["B", "the same, choosing the repo first"],
+    ["F", "new bench, its branch made from another branch"],
     ["M", "open its bench's merge request in the browser"],
     ["D", "remove one of its benches"],
   ]],

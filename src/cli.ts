@@ -1,26 +1,30 @@
 // Command line: options, help text and startup.
 
+import { existsSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { benchedIssues, listBenches } from "./bench.ts";
 import { Board } from "./board.ts";
 import { openUrl } from "./browser.ts";
-import { boardUrl, SERVER, TOKEN } from "./config.ts";
+import { boardUrl, CONFIG_ERROR, CONFIG_FILE, SERVER, setting, TOKEN } from "./config.ts";
 import { JiraError } from "./jira/client.ts";
 import { printBoard } from "./render/print.ts";
 import { THEME_NAMES, useTheme } from "./render/theme.ts";
+import { setup } from "./setup.ts";
 import { Tui } from "./tui/app.ts";
 
-const USAGE = `Usage: jboard [-m] [-a] [-b BOARD_ID] [--columns NAMES] [-w] [-p] [-t THEME]
+const USAGE = `Usage: jboard [-m] [-a] [-b BOARD_ID] [--columns NAMES] [-w] [-p] [-t THEME] [--setup]
   -m, --mine     start with only my cards (assigned to me, or with a subtask of mine)
   -a, --all      show every card in the done column, not just the 5 latest
-  -b, --board    board id, the rapidView=<id> in the board's URL (default: $JIRA_BOARD_ID)
+  -b, --board    board id, the rapidView=<id> in the board's URL (default: the config's board)
       --columns  the board's columns to show, comma separated, e.g. "To Do,In Progress,Done"
-                 (default: $JBOARD_COLUMNS, else all); cards in other columns are left out
+                 (default: the config's columns, else all); cards in other columns are left out
   -w, --web      open the board in the browser instead
   -p, --print    print the board once instead of the interactive view
                  (automatic when output is not a terminal)
   -t, --theme    night (default, dark), day (light terminals) or classic (16 colours);
-                 or set $JBOARD_THEME. 24-bit colour is used when $COLORTERM says so
+                 or set it in the config. 24-bit colour is used when $COLORTERM says so
+      --setup    ask for your Jira, token and board again and save them in the config
+                 (also what happens on the first run, when there is no config yet)
 
 Keys: h/j/k/l or arrows  move          enter/space  expand/collapse subtasks
       g/G                top/bottom    e            expand/collapse all
@@ -40,17 +44,23 @@ Keys: h/j/k/l or arrows  move          enter/space  expand/collapse subtasks
       r                  refresh       ctrl+c       quit
       ?                  show all keys
 
-Environment:
-  JIRA_SERVER     base URL, e.g. https://jira.example.com/jira            (required)
-  JIRA_API_TOKEN  personal access token, sent as a bearer token           (required)
-  JIRA_BOARD_ID   board to show, the rapidView=<id> in the board's URL     (or use --board)
-  JBOARD_COLUMNS  columns to show, comma separated                        (or use --columns)
-  JIRA_SSO_URL    page that redoes your SSO sign-in when Jira suddenly refuses the token
-                  (default: $JIRA_SERVER/login.jsp)
-  JBOARD_THEME    night, day or classic
-  JBOARD_BENCH    the bench command, for b and B (default: bench; see github.com/niklaskors/bench)
-  JBOARD_BRANCH   branch name for a new bench, from {type} (fix for bugs, else feat), {key} and
-                  {summary} (default: {type}/{key}-{summary})`;
+Config: ${CONFIG_FILE}, e.g.
+  { "server": "https://jira.example.com/jira", "token": "...", "board": 123 }
+
+  server     base URL of your Jira                                     (required)
+  token      personal access token, sent as a bearer token             (required)
+  board      board to show, the rapidView=<id> in the board's URL       (or use --board)
+  columns    columns to show, a list or comma separated                (or use --columns)
+  theme      night, day or classic                                     (or use --theme)
+  ssoUrl     page that redoes your SSO sign-in when Jira suddenly refuses the token
+             (default: <server>/login.jsp)
+  bench      the bench command, for b and B (default: bench; see github.com/niklaskors/bench)
+  branch     branch name for a new bench, from {type} (fix for bugs, else feat), {key} and
+             {summary} (default: {type}/{key}-{summary})
+  truecolor  true forces 24-bit colour
+
+Each can also be set in the environment, which wins over the file: JIRA_SERVER, JIRA_API_TOKEN,
+JIRA_BOARD_ID, JBOARD_COLUMNS, JBOARD_THEME, JIRA_SSO_URL, JBOARD_BENCH, JBOARD_BRANCH, JBOARD_TRUECOLOR.`;
 
 async function main(): Promise<void> {
   let values;
@@ -64,6 +74,7 @@ async function main(): Promise<void> {
         web: { type: "boolean", short: "w" },
         print: { type: "boolean", short: "p" },
         theme: { type: "string", short: "t" },
+        setup: { type: "boolean" },
         help: { type: "boolean", short: "h" },
       },
     }));
@@ -75,21 +86,33 @@ async function main(): Promise<void> {
     console.log(USAGE);
     return;
   }
-  const themeName = values.theme ?? process.env.JBOARD_THEME ?? "night";
+  // the first run, without a config or the settings in the environment: set it up
+  const firstRun = !existsSync(CONFIG_FILE) && !(SERVER && TOKEN);
+  if (values.setup || (firstRun && process.stdin.isTTY)) {
+    await setup();
+    if (values.setup) return;
+  } else if (firstRun) {
+    throw new JiraError(`no config yet: run jboard in a terminal to set it up, or write ${CONFIG_FILE}`);
+  }
+  if (CONFIG_ERROR) {
+    console.error(`jboard: ${CONFIG_ERROR}`);
+    process.exit(2);
+  }
+  const themeName = values.theme ?? setting("theme") ?? "night";
   if (!useTheme(themeName)) {
     console.error(`jboard: unknown theme "${themeName}", choose from: ${THEME_NAMES.join(", ")}`);
     process.exit(2);
   }
-  if (!SERVER || !TOKEN) throw new JiraError("JIRA_SERVER and JIRA_API_TOKEN must be set");
+  if (!SERVER || !TOKEN) throw new JiraError(`set "server" and "token" in ${CONFIG_FILE} (or JIRA_SERVER and JIRA_API_TOKEN)`);
 
-  const boardId = values.board ?? process.env.JIRA_BOARD_ID;
-  if (!boardId) throw new JiraError("no board: set JIRA_BOARD_ID or pass --board <id> (the rapidView=<id> in the board's URL)");
+  const boardId = values.board ?? setting("board");
+  if (!boardId) throw new JiraError(`no board: set "board" in ${CONFIG_FILE} or pass --board <id> (the rapidView=<id> in the board's URL)`);
   if (values.web) {
     openUrl(boardUrl(boardId));
     return;
   }
 
-  const columns = (values.columns ?? process.env.JBOARD_COLUMNS ?? "").split(",").map((c) => c.trim()).filter(Boolean);
+  const columns = (values.columns ?? setting("columns") ?? "").split(",").map((c) => c.trim()).filter(Boolean);
   const board = new Board(boardId, columns);
   await board.reload();
   if (values.print || !process.stdout.isTTY || !process.stdin.isTTY) {

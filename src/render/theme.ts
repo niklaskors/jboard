@@ -1,5 +1,6 @@
 // Themes map style names (card, pill2, person3, ...) to terminal escape codes.
 
+import { setting } from "../config.ts";
 import { lineLen, type Line, type Style } from "./line.ts";
 
 const RESET = "\x1b[0m";
@@ -21,7 +22,7 @@ export const PEOPLE_SLOTS = 11;
 /** 24-bit colour where the terminal supports it, otherwise the nearest of the 256 xterm colours. */
 const TRUECOLOR = /truecolor|24bit/i.test(process.env.COLORTERM ?? "")
   || ["iTerm.app", "WezTerm", "ghostty", "vscode"].includes(process.env.TERM_PROGRAM ?? "")
-  || process.env.JBOARD_TRUECOLOR === "1";
+  || setting("truecolor") === "1";
 
 function to256(r: number, g: number, b: number): number {
   const steps = [0, 95, 135, 175, 215, 255];

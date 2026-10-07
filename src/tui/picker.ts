@@ -1,7 +1,7 @@
 // A filter-as-you-type list; the assign and status dialogs are pickers with their own options.
 
 import { shorten, type Line } from "../render/line.ts";
-import { boxInner, drawBox, isTyping, type BoxRow, type Dialog, type DialogHost, type Key } from "./dialog.ts";
+import { boxInner, drawBox, isTyping, type BoxRow, type BoxShape, type Dialog, type DialogHost, type Key } from "./dialog.ts";
 
 export interface PickerOption {
   label: string;
@@ -21,6 +21,8 @@ export interface PickerSource {
   /** Options are still being fetched. */
   loading(): boolean;
   queryChanged?(query: string): void;
+  /** A wider box, e.g. for long branch names. */
+  shape?: BoxShape;
   close?(): void;
 }
 
@@ -64,7 +66,7 @@ export class Picker implements Dialog {
   }
 
   draw(rows: Line[]): void {
-    const inner = boxInner(this.host.width);
+    const inner = boxInner(this.host.width, this.source.shape);
     const options = this.source.options(this.query);
     this.sel = Math.max(0, Math.min(this.sel, options.length - 1));
     const visible = Math.max(1, Math.min(12, this.host.height - 12, options.length || 1));
@@ -82,6 +84,6 @@ export class Picker implements Dialog {
       });
     });
     const more = this.source.loading() && options.length ? "searching… · " : "";
-    drawBox(rows, this.host, this.source.title, body, `${more}↑↓ select · ⏎ ${this.source.action} · esc cancel`);
+    drawBox(rows, this.host, this.source.title, body, `${more}↑↓ select · ⏎ ${this.source.action} · esc cancel`, this.source.shape);
   }
 }

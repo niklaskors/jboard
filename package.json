@@ -11,10 +11,12 @@
     "node": ">=22.18"
   },
   "scripts": {
-    "check": "tsc"
+    "check": "tsc",
+    "test": "vitest run"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "typescript": "^7.0.0"
+    "typescript": "^7.0.0",
+    "vitest": "^5.0.3"
   }
 }

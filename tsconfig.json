@@ -14,5 +14,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["bin", "src"]
+  "include": ["bin", "src", "test", "vitest.config.ts"]
 }

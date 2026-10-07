@@ -1,9 +1,10 @@
 // `b` / `B`: open the selected issue's bench (its own git worktree, made by the bench tool) in a new terminal tab;
-// on a story with subtasks, choosing the story or one of its subtasks first. `M`: open the merge request of its
-// bench. `D`: remove one of its benches.
+// on a story with subtasks, choosing the story or one of its subtasks first. `F`: the same, making the bench's
+// branch from another branch. `M`: open the merge request of its bench. `D`: remove one of its benches.
 
 import { homedir } from "node:os";
-import { benchesFor, listRepos, mrStatus, openBench, removeBench, type Bench, type BenchRepo, type MergeRequest } from "../bench.ts";
+import { benchesFor, branchHasKey, branchName, listBranches, listRepos, mrStatus, openBench, removeBench, type Bench,
+  type BenchRepo, type Branch, type MergeRequest } from "../bench.ts";
 import { openUrl } from "../browser.ts";
 import type { Card, Issue } from "../jira/types.ts";
 import type { Item } from "../render/layout.ts";
@@ -37,13 +38,13 @@ export function openBenchIssue(host: DialogHost, story: Issue, choices: Issue[],
   });
 }
 
-/** `b`: open the issue's bench, making it in `repo` (or bench's default) if it has none. */
-export function startBench(host: DialogHost, issue: Issue, repo?: string): Promise<void> {
+/** `b`: open the issue's bench, making it in `repo` (or bench's default) if it has none, from `from` if given. */
+export function startBench(host: DialogHost, issue: Issue, repo?: string, from?: string): Promise<void> {
   return host.perform(`${issue.key}: opening its bench…`, async () => {
     const message = await openBench(issue, repo, (line) => {
       host.msg = `${issue.key}: ${line}`;
       host.draw();
-    });
+    }, from);
     host.showBenches();
     return message;
   }, (message) => `bench: ${message}`);
@@ -51,8 +52,11 @@ export function startBench(host: DialogHost, issue: Issue, repo?: string): Promi
 
 const tilde = (path: string) => path.startsWith(homedir()) ? `~${path.slice(homedir().length)}` : path;
 
-/** `B`: choose the repo first, e.g. for a story that needs changes in two repos. */
-export function openBenchRepo(host: DialogHost, issue: Issue): Dialog {
+/**
+ * `B`: choose the repo first, e.g. for a story that needs changes in two repos. With `next`, the repo goes there
+ * instead of opening the bench (as `F` does), and is chosen without asking when there is only one.
+ */
+export function openBenchRepo(host: DialogHost, issue: Issue, next?: (repo: string) => void | Promise<void>): Dialog {
   let repos: BenchRepo[] = [];
   let benches: Bench[] = [];
   let loading = true;
@@ -66,23 +70,101 @@ export function openBenchRepo(host: DialogHost, issue: Issue): Dialog {
         label: r.name,
         note: [r.isDefault && "default", tilde(r.path)].filter(Boolean).join(" · "),
         current: benches.some((b) => b.repo === r.name && !b.removed),
-        choose: () => startBench(host, issue, r.name),
+        choose: async () => (next ? next(r.name) : startBench(host, issue, r.name)),
       }));
     },
     empty: () => (loading ? "loading repos…" : repos.length ? "no matching repo" : "no repos yet: bench add <path or url>"),
     loading: () => loading,
   });
 
-  Promise.all([listRepos(), benchesFor(issue)]).then(([r, b]) => {
+  Promise.all([listRepos(), benchesFor(issue)]).then(async ([r, b]) => {
     repos = r;
     benches = b;
     loading = false;
-    if (host.dialog === picker) host.draw();
+    if (host.dialog !== picker) return;
+    if (next && r.length === 1) await next(r[0].name);
+    host.draw();
   }, (e: Error) => {
     if (host.dialog !== picker) return;
     host.close();
     host.msg = `bench: ${e.message}`;
     host.draw();
+  });
+  return picker;
+}
+
+const ago = (iso: string) => {
+  const hours = (Date.now() - Date.parse(iso)) / 3_600_000;
+  return hours < 1 ? "just now" : hours < 48 ? `${Math.round(hours)} h ago` : `${Math.round(hours / 24)} days ago`;
+};
+
+/**
+ * `F`: choose the branch the issue's new branch starts from, e.g. its story's branch for a subtask. Branches of the
+ * story come first, then those with a bench, then the rest, newest first. Listed at once from what git has, then
+ * again after fetching.
+ */
+export function openBaseBranch(host: DialogHost, issue: Issue, repo: string): Dialog {
+  let branch = branchName(issue); // or the branch of a bench it had in the repo, which bench would use again
+  const story = issue.fields.parent?.key;
+  let branches: Branch[] = [];
+  let loading = true;
+
+  const rank = (b: Branch) => (story && branchHasKey(b.name, story) ? 0 : b.bench ? 1 : 2);
+  const order = (list: Branch[]) => [...list].sort((a, b) => rank(a) - rank(b)); // stable: newest first within a rank
+
+  const picker = new Picker(host, {
+    get title() {
+      return `New ${branch} in ${repo}, from`;
+    },
+    action: "make the bench",
+    shape: { max: 110 },
+    options(query) {
+      const q = query.trim().toLowerCase();
+      return branches.filter((b) => !q || b.name.toLowerCase().includes(q)).map((b) => ({
+        label: b.name,
+        note: [rank(b) === 0 && "the story's", [b.local && "local", b.remote && "remote"].filter(Boolean).join(" + "), ago(b.date)]
+          .filter(Boolean).join(" · "),
+        current: b.bench, // ✓ has a bench
+        choose: () => startBench(host, issue, repo, b.name),
+      }));
+    },
+    empty: () => (loading ? "loading branches…" : branches.length ? "no matching branch" : "no branches"),
+    loading: () => loading,
+  });
+
+  /** Show a newer list, keeping the cursor on the branch it was on. */
+  const show = (list: Branch[]) => {
+    const on = picker.source.options(picker.query)[picker.sel]?.label;
+    branches = order(list);
+    if (on) picker.sel = Math.max(0, picker.source.options(picker.query).findIndex((o) => o.label === on));
+  };
+
+  Promise.all([listBranches(repo), benchesFor(issue)]).then(([list, had]) => {
+    branch = had.find((b) => b.repo === repo && b.branch)?.branch ?? branch;
+    if (list.some((b) => b.name === branch)) { // bench checks an existing branch out, whatever it started from
+      loading = false;
+      if (host.dialog !== picker) return;
+      host.close();
+      host.msg = `${branch} already exists in ${repo}: b opens its bench`;
+      host.draw();
+      return;
+    }
+    show(list);
+    if (host.dialog === picker) host.draw();
+    return listBranches(repo, true).then((fetched) => {
+      show(fetched);
+      loading = false;
+      if (host.dialog === picker) host.draw();
+    });
+  }).catch((e: Error) => {
+    loading = false;
+    if (host.dialog !== picker) return;
+    if (branches.length) host.draw(); // fetching failed: keep what is listed
+    else {
+      host.close();
+      host.msg = `bench: ${e.message}`;
+      host.draw();
+    }
   });
   return picker;
 }

@@ -42,7 +42,7 @@ export function onSignInProgress(report: (message: string) => void): void {
 }
 
 /**
- * Redo the SSO sign-in by opening Jira's login page ($JIRA_SSO_URL) in the background browser,
+ * Redo the SSO sign-in by opening Jira's login page (the config's ssoUrl) in the background browser,
  * then wait until the token is accepted again. Requests failing at the same time share one attempt.
  */
 function refreshSignIn(): Promise<boolean> {

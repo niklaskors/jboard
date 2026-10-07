@@ -3,13 +3,14 @@
 
 import { spawn } from "node:child_process";
 import { askpassEnv } from "./askpass.ts";
+import { setting } from "./config.ts";
 import type { Issue } from "./jira/types.ts";
 
-/** The bench command; set JBOARD_BENCH when it isn't on the PATH as `bench`. */
-const BENCH = process.env.JBOARD_BENCH || "bench";
+/** The bench command; set "bench" in the config when it isn't on the PATH as `bench`. */
+const BENCH = setting("bench") || "bench";
 
 /** Branch names for new benches; {type} is fix for bugs and feat otherwise. */
-const BRANCH_FORMAT = process.env.JBOARD_BRANCH || "{type}/{key}-{summary}";
+const BRANCH_FORMAT = setting("branch") || "{type}/{key}-{summary}";
 
 export class BenchError extends Error {}
 
@@ -66,7 +67,7 @@ function run(args: string[], progress?: (line: string) => void): Promise<string>
       if (lines.length) progress?.(lines[lines.length - 1]);
     });
     child.on("error", (e: NodeJS.ErrnoException) => reject(e.code === "ENOENT"
-      ? new BenchError(`"${BENCH}" not found: install bench (github.com/niklaskors/bench) or set JBOARD_BENCH`)
+      ? new BenchError(`"${BENCH}" not found: install bench (github.com/niklaskors/bench) or set "bench" in the config`)
       : e));
     child.on("exit", (code) => {
       if (code === 0) return resolve(out);
@@ -91,6 +92,21 @@ export async function listBenches({ mrs = false, keys }: { mrs?: boolean; keys?:
   } catch {
     return [];
   }
+}
+
+/** A branch of a repo, as `bench branches` lists them. */
+export interface Branch {
+  name: string;
+  local: boolean;
+  remote: boolean;
+  date: string;
+  /** A bench has it checked out. */
+  bench: boolean;
+}
+
+/** A repo's branches, the most recently committed to first; `fetch` updates the remote ones first (slower). */
+export async function listBranches(repo: string, fetch = false): Promise<Branch[]> {
+  return JSON.parse(await run(["branches", "--json", "--repo", repo, ...fetch ? ["--fetch"] : []])) as Branch[];
 }
 
 export async function listRepos(): Promise<BenchRepo[]> {
@@ -152,19 +168,22 @@ export async function removeBench(bench: Bench, deleteBranch: boolean): Promise<
 
 /**
  * Open the issue's bench in a new terminal tab, making it first if needed. `repo` picks the repo
- * (default: the repo of the bench the issue already has, else bench's default).
- * Returns what to tell the user.
+ * (default: the repo of the bench the issue already has, else bench's default); a new branch starts from `from`
+ * (default: the repo's base). Returns what to tell the user.
  */
-export async function openBench(issue: Issue, repo: string | undefined, progress: (line: string) => void): Promise<string> {
+export async function openBench(issue: Issue, repo: string | undefined, progress: (line: string) => void,
+  from?: string): Promise<string> {
   // a bench it has wins, else the branch of a removed one, so its commits and merge request carry on
   const existing = (await benchesFor(issue)).filter((b) => !repo || b.repo === repo)
     .sort((a, b) => Number(!!a.removed) - Number(!!b.removed))[0];
   const branch = existing?.branch ?? branchName(issue);
-  const args = ["new", branch, "--json", "--open", "tab"];
+  // the tab is titled after the issue, e.g. "PROJ-123 Fix the login"
+  const args = ["new", branch, "--json", "--open", "tab", "--title", `${issue.key} ${issue.fields.summary}`];
   const where = repo ?? existing?.repo;
   if (where) args.push("--repo", where);
+  if (from) args.push("--from", from);
   const result = JSON.parse(await run(args, progress)) as { repo: string; created: boolean; warm?: boolean };
   return result.created
-    ? `${issue.key}: ${existing?.removed ? "bench again for" : "new bench"} ${branch} in ${result.repo}${result.warm ? "" : " (setting up in the new tab)"}`
+    ? `${issue.key}: ${existing?.removed ? "bench again for" : "new bench"} ${branch} in ${result.repo}${from ? ` from ${from}` : ""}${result.warm ? "" : " (setting up in the new tab)"}`
     : `${issue.key}: opened bench ${branch} in ${result.repo}`;
 }

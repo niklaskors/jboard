@@ -14,7 +14,7 @@ import { cardWidth, columnHeaderLine, columnItems, columnWidth, decorate, GAP, h
 import { lineLen, overlay, place, sliceLine, type Line } from "../render/line.ts";
 import { ansi, columnSlot, shade, theme } from "../render/theme.ts";
 import { openAssign } from "./assign.ts";
-import { benchChoices, openBenchIssue, openBenchRepo, openMergeRequest, openRemoveBench, startBench } from "./bench.ts";
+import { benchChoices, openBaseBranch, openBenchIssue, openBenchRepo, openMergeRequest, openRemoveBench, startBench } from "./bench.ts";
 import { openCreate } from "./create.ts";
 import { openDescription } from "./description.ts";
 import type { Dialog, DialogHost, Key } from "./dialog.ts";
@@ -293,14 +293,17 @@ export class Tui implements DialogHost {
   }
 
   /**
-   * b / B: the selected issue's bench, B choosing the repo first. A subtask gets its own; on a story with
-   * subtasks, choose the story or one of them first.
+   * b / B / F: the selected issue's bench; B chooses the repo first, F the repo and the branch to start from.
+   * A subtask gets its own; on a story with subtasks, choose the story or one of them first.
    */
-  async benchCurrent(chooseRepo: boolean): Promise<void> {
+  async benchCurrent(how: "open" | "repo" | "from"): Promise<void> {
     const cur = this.current();
     if (!cur) return;
     const forIssue = async (issue: Issue) => {
-      if (chooseRepo) this.dialog = openBenchRepo(this, issue);
+      if (how === "repo") this.dialog = openBenchRepo(this, issue);
+      else if (how === "from") this.dialog = openBenchRepo(this, issue, (repo) => {
+        this.dialog = openBaseBranch(this, issue, repo);
+      });
       else await startBench(this, issue);
     };
     const choices = benchChoices(cur);
@@ -530,7 +533,7 @@ export class Tui implements DialogHost {
       "?": () => {
         this.dialog = openHelp(this);
       },
-      b: () => this.benchCurrent(false), B: () => this.benchCurrent(true), D: () => this.openDialog(openRemoveBench),
+      b: () => this.benchCurrent("open"), B: () => this.benchCurrent("repo"), F: () => this.benchCurrent("from"), D: () => this.openDialog(openRemoveBench),
       M: () => this.openDialog(openMergeRequest),
       tab: () => this.switchView(key.shift ? -1 : 1),
       S: () => this.openDialog(openSprint),
