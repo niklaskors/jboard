@@ -103,20 +103,76 @@ export interface Rendered {
 
 const codeLine = (text: string): Rendered => ({ line: [["  ", null], [text.trimEnd(), "code"]], code: true });
 
-/** A table row's cells: split at | or ||, except inside [links] and {{monospace}}. */
-function splitCells(row: string): string[] {
-  const cells = [""];
+interface Cell {
+  text: string;
+  header: boolean;
+}
+
+/** A table row's cells: split at | or || (a header cell), except inside [links] and {{monospace}}. */
+function splitCells(row: string): Cell[] {
+  const cells: Cell[] = [];
   let depth = 0;
   for (let i = 0; i < row.length; i++) {
     const c = row[i];
     if (c === "[" || c === "{") depth++;
     else if ((c === "]" || c === "}") && depth) depth--;
     if (c === "|" && !depth) {
-      if (row[i + 1] === "|") i++;
-      cells.push("");
-    } else cells[cells.length - 1] += c;
+      const header = row[i + 1] === "|";
+      if (header) i++;
+      cells.push({ text: "", header });
+    } else if (cells.length) cells[cells.length - 1].text += c;
   }
-  return cells.map((c) => c.trim());
+  // the | or || that closes the row leaves an empty cell behind
+  if (cells.length > 1 && !cells[cells.length - 1].text.trim()) cells.pop();
+  return cells.map((c) => ({ ...c, text: c.text.trim() }));
+}
+
+/** Column widths that fit `room`: the natural ones when they do, else the narrow columns keep theirs and the wide share the rest. */
+function columnWidths(natural: number[], room: number): number[] {
+  if (natural.reduce((a, b) => a + b, 0) <= room) return natural;
+  const widths = [...natural];
+  const order = natural.map((_, i) => i).sort((a, b) => natural[a] - natural[b]);
+  let left = room;
+  order.forEach((col, i) => {
+    widths[col] = Math.max(1, Math.min(natural[col], Math.floor(left / (order.length - i))));
+    left -= widths[col];
+  });
+  return widths;
+}
+
+/** A table as a grid: columns aligned, cells wrapped within their column, a rule under the header. */
+function renderTable(rows: Cell[][], width: number, bar: Line, markdown: boolean): Line[] {
+  const n = Math.max(...rows.map((r) => r.length));
+  // a cell's lines: Jira's \\ line breaks and the lines it continues on; list items get a bullet
+  const content = rows.map((row) => Array.from({ length: n }, (_, c) => {
+    const cell = row[c] ?? { text: "", header: false };
+    return cell.text.split(/\\\\|\n/).map((part) => part.trim()).filter(Boolean)
+      .map((part) => part.replace(/^([*#-]+|\d+[.)])\s+/, "• "))
+      .map((part) => inline(part, cell.header ? "bold" : null, markdown));
+  }));
+  const natural = Array.from({ length: n }, (_, c) => Math.max(1, ...content.map((row) => Math.max(0, ...row[c].map(lineLen)))));
+  const widths = columnWidths(natural, width - lineLen(bar) - 3 * (n - 1));
+  const cells = content.map((row) => row.map((parts, c) => parts.flatMap((part) => wrapLine(part, widths[c]))));
+  const tall = cells.some((row) => row.some((lines) => lines.length > 1));
+  const rule = (): Line => [...bar, [widths.map((w) => "─".repeat(w)).join("─┼─"), "dim"]];
+
+  const out: Line[] = [];
+  rows.forEach((row, r) => {
+    const height = Math.max(1, ...cells[r].map((lines) => lines.length));
+    for (let i = 0; i < height; i++) {
+      const line: Line = [...bar];
+      cells[r].forEach((lines, c) => {
+        const text = lines[i] ?? [];
+        if (c) line.push([text.length || c < n - 1 ? " │ " : " │", "dim"]);
+        line.push(...text);
+        if (c < n - 1) line.push([" ".repeat(Math.max(0, widths[c] - lineLen(text))), null]);
+      });
+      out.push(line);
+    }
+    const header = row.length > 0 && row.every((cell) => cell.header);
+    if (r < rows.length - 1 && (header || tall)) out.push(rule());
+  });
+  return out;
 }
 
 /** Render a description as lines at most `width` wide, apart from code. */
@@ -131,8 +187,28 @@ export function renderMarkup(text: string, width: number): Rendered[] {
   let listMarks = ""; // the marks of the previous list item: a different kind of list restarts the count
   let code: RegExp | null = null; // the end of the code block we are in
   let quote = false;
+  let table: { rows: Cell[][]; bar: Line; open: boolean } | null = null; // `open`: the last row goes on on the next line
+  const endTable = () => {
+    if (table) add(...renderTable(table.rows, width, table.bar, markdown), []);
+    table = null;
+  };
 
   for (const raw of text.replace(/\t/g, "  ").split("\n")) {
+    if (table && !/^\s*\|/.test(raw)) {
+      const last = table.rows[table.rows.length - 1];
+      if (table.open && raw.trim() && last.length) {
+        // a cell that goes on over more lines, e.g. a list in it, until the next row
+        const cell = last[last.length - 1];
+        const rest = splitCells(`|${raw}`);
+        cell.text += `\n${rest[0].text}`;
+        if (rest.length > 1 || /\|\s*$/.test(raw)) {
+          last.push(...rest.slice(1));
+          table.open = !/\|\s*$/.test(raw);
+        }
+        continue;
+      }
+      endTable();
+    }
     if (code) {
       const end = raw.search(code);
       const body = end < 0 ? raw : raw.slice(0, end);
@@ -192,13 +268,14 @@ export function renderMarkup(text: string, width: number): Rendered[] {
       continue;
     }
     if (/^\s*\|/.test(line)) {
-      if (/^\s*\|[\s:|-]+\|\s*$/.test(line)) continue; // a Markdown table's separator row
-      const header = /^\s*\|\|/.test(line);
-      const cells = splitCells(line.trim().replace(/^\|\|?|\|\|?$/g, ""));
-      const row: Line = [];
-      cells.forEach((cell, i) => row.push(...(i ? [[" │ ", "dim"] as [string, Style]] : []),
-        ...inline(cell, header ? "bold" : null, markdown)));
-      add(...wrapLine(row, width, bar));
+      if (!table) blank();
+      table ??= { rows: [], bar, open: false };
+      if (/^\s*\|[\s:|-]+\|\s*$/.test(line)) { // a Markdown table's separator row: the one above is the header
+        table.rows[table.rows.length - 1]?.forEach((cell) => (cell.header = true));
+        continue;
+      }
+      table.rows.push(splitCells(line.trim()));
+      table.open = !/\|\s*$/.test(line);
       continue;
     }
 
@@ -207,9 +284,11 @@ export function renderMarkup(text: string, width: number): Rendered[] {
     const mdItem = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/.exec(line);
     let marks: string | null = null;
     let item = "";
+    let start: number | undefined; // the number a numbered list starts at, as written
     if (mdItem && (markdown || /\d/.test(mdItem[2]))) {
       const depth = Math.floor(mdItem[1].length / 2) + 1;
       marks = listMarks.slice(0, depth - 1).padEnd(depth - 1, "*") + (/\d/.test(mdItem[2]) ? "#" : "*");
+      if (/\d/.test(mdItem[2])) start = parseInt(mdItem[2]);
       item = mdItem[3];
     } else if (wikiItem && !(wikiItem[1].length > 1 && /^-+$/.test(wikiItem[1]))) {
       marks = wikiItem[1].replace(/#/g, markdown ? "*" : "#");
@@ -219,6 +298,7 @@ export function renderMarkup(text: string, width: number): Rendered[] {
       const depth = marks.length;
       counters.length = depth;
       if (listMarks.slice(0, depth) !== marks) counters[depth - 1] = 0;
+      if (start !== undefined && !counters[depth - 1]) counters[depth - 1] = start - 1;
       listMarks = marks;
       counters[depth - 1] = (counters[depth - 1] ?? 0) + 1;
       const task = /^\[([ xX])\]\s+(.*)$/.exec(item);
@@ -235,6 +315,7 @@ export function renderMarkup(text: string, width: number): Rendered[] {
     const indent = /^ */.exec(line)![0].slice(0, Math.floor(width / 2));
     add(...wrapLine(inline(line.trim(), quoted ? "italic" : null, markdown), width, [...bar, [indent, null]]));
   }
+  endTable();
   while (out.length && !lineLen(out[out.length - 1].line)) out.pop();
   return out;
 }
