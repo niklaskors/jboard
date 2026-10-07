@@ -29,7 +29,7 @@ const USAGE = `Usage: jboard [-m] [-a] [-b BOARD_ID] [--columns NAMES] [-w] [-p]
 Keys: h/j/k/l or arrows  move          enter/space  expand/collapse subtasks
       g/G                top/bottom    e            expand/collapse all
       o                  open the selected issue in the browser
-      w                  open the whole board in the browser
+      w                  open the whole board in the browser, on the selected issue
       s                  change status of the selected story/subtask (type to filter)
       A                  assign the selected story/subtask (type to search, enter to assign)
       p                  set story points of the selected story (empty clears)

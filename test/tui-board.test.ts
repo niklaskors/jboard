@@ -113,13 +113,13 @@ describe("the board", () => {
     expect(board.screen()).not.toContain("╭─ Keys");
   });
 
-  test("o and w open the issue and the board in the browser", async () => {
+  test("o and w open the issue and the board with it selected in the browser", async () => {
     const board = await openBoard();
     await board.press("l", "o");
     expect(board.status()).toContain("opened PROJ-4 in browser");
     await board.press("w");
     expect(board.status()).toContain("opened the board in the browser · press r to reload here");
-    await expect.poll(() => opened().sort()).toEqual([`${jira.url}/browse/PROJ-4`, `${jira.url}/secure/RapidBoard.jspa?rapidView=7`]);
+    await expect.poll(() => opened().sort()).toEqual([`${jira.url}/browse/PROJ-4`, `${jira.url}/secure/RapidBoard.jspa?rapidView=7&selectedIssue=PROJ-4`]);
   });
 });
 

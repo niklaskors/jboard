@@ -282,7 +282,7 @@ export class Tui implements DialogHost {
   }
 
   openBoardInBrowser(): void {
-    openUrl(boardUrl(this.board.boardId));
+    openUrl(boardUrl(this.board.boardId, this.current()?.issue.key));
     this.msg = "opened the board in the browser · press r to reload here";
   }
 

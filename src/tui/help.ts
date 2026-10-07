@@ -39,7 +39,7 @@ const KEYS: [string, [string, string][]][] = [
     ["m", "only mine"],
     ["v", "cards or a list (a line per issue), in every tab"],
     ["a", "all done cards instead of the latest 5"],
-    ["w", "open the board in the browser"],
+    ["w", "open the board in the browser, on the selected issue"],
     ["r", "reload from Jira"],
     ["?", "this list"],
     ["ctrl+c", "quit"],

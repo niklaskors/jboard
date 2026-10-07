@@ -87,5 +87,7 @@ export function saveConfig(settings: Partial<Record<Setting, string>>): void {
   reloadConfig();
 }
 
-export const boardUrl = (boardId: string) => `${SERVER}/secure/RapidBoard.jspa?rapidView=${boardId}`;
+/** The board, with `selected` (an issue key) open in its detail panel. */
+export const boardUrl = (boardId: string, selected?: string) =>
+  `${SERVER}/secure/RapidBoard.jspa?rapidView=${boardId}${selected ? `&selectedIssue=${selected}` : ""}`;
 export const issueUrl = (key: string) => `${SERVER}/browse/${key}`;
