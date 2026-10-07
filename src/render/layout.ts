@@ -24,7 +24,7 @@ const ISSUE_KINDS: Record<string, "story" | "task" | "bug" | "epic"> = {
 };
 
 /** The theme's single-width marker for an issue type, coloured by kind. */
-function typeIcon(type: string): Segment {
+export function typeIcon(type: string): Segment {
   const kind = ISSUE_KINDS[type];
   return kind ? [theme.icons[kind], kind] : [theme.icons.other, "dim"];
 }

@@ -71,9 +71,19 @@ async function subtaskTypeId(project: string): Promise<string> {
   return type.id;
 }
 
+export interface Project {
+  key: string;
+  name: string;
+}
+
+/** The projects whose issues a board shows. */
+export async function boardProjects(boardId: string): Promise<Project[]> {
+  return (await get<{ values: Project[] }>(`/rest/agile/1.0/board/${boardId}/project`)).values;
+}
+
 /** The project new issues of a board go in: its only project, else the one most of its issues are in. */
 export async function boardProject(boardId: string, keys: string[]): Promise<string> {
-  const { values } = await get<{ values: { key: string }[] }>(`/rest/agile/1.0/board/${boardId}/project`);
+  const values = await boardProjects(boardId);
   if (values.length === 1) return values[0].key;
   const count = (project: string) => keys.filter((k) => k.startsWith(`${project}-`)).length;
   const best = values.sort((a, b) => count(b.key) - count(a.key))[0];

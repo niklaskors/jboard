@@ -11,8 +11,10 @@ import { printBoard } from "./render/print.ts";
 import { THEME_NAMES, useTheme } from "./render/theme.ts";
 import { setup } from "./setup.ts";
 import { Tui } from "./tui/app.ts";
+import { runCreate } from "./tui/wizard.ts";
 
 const USAGE = `Usage: jboard [-m] [-a] [-b BOARD_ID] [--columns NAMES] [-w] [-p] [-t THEME] [--setup]
+       jboard --create SUMMARY [-b BOARD_ID] [-t THEME]
   -m, --mine     start with only my cards (assigned to me, or with a subtask of mine)
   -a, --all      show every card in the done column, not just the 5 latest
   -b, --board    board id, the rapidView=<id> in the board's URL (default: the config's board)
@@ -25,6 +27,9 @@ const USAGE = `Usage: jboard [-m] [-a] [-b BOARD_ID] [--columns NAMES] [-w] [-p]
                  or set it in the config. 24-bit colour is used when $COLORTERM says so
       --setup    ask for your Jira, token and board again and save them in the config
                  (also what happens on the first run, when there is no config yet)
+      --create   create one issue with this summary in a small wizard: its type, the sprint or
+                 the backlog, then the summary to change. Prints the new key, e.g. for punch:
+                 key=$(jboard --create "Export to CSV"); exits with 130 when cancelled
 
 Keys: h/j/k/l or arrows  move          enter/space  expand/collapse subtasks
       g/G                top/bottom    e            expand/collapse all
@@ -75,6 +80,7 @@ async function main(): Promise<void> {
         print: { type: "boolean", short: "p" },
         theme: { type: "string", short: "t" },
         setup: { type: "boolean" },
+        create: { type: "string" },
         help: { type: "boolean", short: "h" },
       },
     }));
@@ -88,7 +94,8 @@ async function main(): Promise<void> {
   }
   // the first run, without a config or the settings in the environment: set it up
   const firstRun = !existsSync(CONFIG_FILE) && !(SERVER && TOKEN);
-  if (values.setup || (firstRun && process.stdin.isTTY)) {
+  // --create's caller reads stdout, so setup's questions wouldn't be seen
+  if (values.setup || (firstRun && process.stdin.isTTY && values.create === undefined)) {
     await setup();
     if (values.setup) return;
   } else if (firstRun) {
@@ -109,6 +116,13 @@ async function main(): Promise<void> {
   if (!boardId) throw new JiraError(`no board: set "board" in ${CONFIG_FILE} or pass --board <id> (the rapidView=<id> in the board's URL)`);
   if (values.web) {
     openUrl(boardUrl(boardId));
+    return;
+  }
+  if (values.create !== undefined) {
+    const created = await runCreate(boardId, values.create);
+    if (!created) process.exit(130);
+    if (created.warning) console.error(`jboard: ${created.warning}`);
+    console.log(created.key);
     return;
   }
 

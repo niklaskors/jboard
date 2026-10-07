@@ -115,6 +115,8 @@ export class FakeJira {
   url = "";
   sprints: FakeSprint[] = [];
   issues: FakeIssue[] = [];
+  /** The projects of the board. */
+  projects: { key: string; name: string }[] = [];
   requests: RecordedRequest[] = [];
   failures: Failure[] = [];
   /** Issues per page, whatever maxResults asks for (Jira caps it too). */
@@ -136,6 +138,7 @@ export class FakeJira {
 
   reset(): void {
     ({ sprints: this.sprints, issues: this.issues } = fixture());
+    this.projects = [{ key: "PROJ", name: "Project" }];
     this.requests = [];
     this.failures = [];
     this.pageSize = 100;
@@ -250,7 +253,7 @@ export class FakeJira {
     if (route("GET", /^\/rest\/agile\/1\.0\/board\/\w+\/backlog$/)) {
       return [200, this.page(this.issues.filter((i) => i.sprint === null), q)];
     }
-    if (route("GET", /^\/rest\/agile\/1\.0\/board\/\w+\/project$/)) return [200, { values: [{ key: "PROJ", name: "Project" }] }];
+    if (route("GET", /^\/rest\/agile\/1\.0\/board\/\w+\/project$/)) return [200, { values: this.projects }];
     if (route("GET", /^\/rest\/api\/2\/issue\/createmeta\/(\w+)\/issuetypes$/)) return [200, { values: TYPES }];
     if (route("GET", /^\/rest\/api\/2\/user\/assignable\/search$/)) {
       const query = (q.username ?? "").toLowerCase();

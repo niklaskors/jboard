@@ -9,7 +9,7 @@ import { boxInner, drawBox, isTyping, type BoxRow, type Dialog, type DialogHost,
 const SHAPE = { max: 80, pad: 2, padY: 1 };
 
 /** Stories, tasks and bugs, in that order; every other non-subtask type when a project has none of those. */
-function creatable(types: IssueType[]): IssueType[] {
+export function creatable(types: IssueType[]): IssueType[] {
   const rank = (t: IssueType) => ["story", "task", "bug"].findIndex((kind) => t.name.toLowerCase().includes(kind));
   const main = types.filter((t) => !t.subtask && rank(t) >= 0).sort((a, b) => rank(a) - rank(b));
   return main.length ? main : types.filter((t) => !t.subtask);
