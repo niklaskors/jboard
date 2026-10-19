@@ -21,7 +21,7 @@ const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "");
 /** Run jboard with these arguments; stdout is a pipe, so it prints the board instead of opening it. */
 function jboard(args: string[], env: Record<string, string | undefined> = {}, input = ""): Promise<Result> {
   return new Promise((resolve) => {
-    const child = execFile(process.execPath, ["--disable-warning=ExperimentalWarning", join(ROOT, "bin", "jboard.ts"), ...args],
+    const child = execFile(process.execPath, ["--disable-warning=ExperimentalWarning", "--disable-warning=UNDICI-EHPA", join(ROOT, "bin", "jboard.ts"), ...args],
       { env: { ...process.env, COLUMNS: "200", ...env } }, (error, stdout, stderr) => {
         resolve({ code: error ? Number(error.code ?? 1) : 0, stdout: stripAnsi(stdout), stderr: stripAnsi(stderr) });
       });
@@ -285,7 +285,7 @@ describe("--update", () => {
   }
 
   const update = (cloneDir: string) => new Promise<Result>((resolve) => {
-    execFile(process.execPath, ["--disable-warning=ExperimentalWarning", join(cloneDir, "bin", "jboard.ts"), "--update"],
+    execFile(process.execPath, ["--disable-warning=ExperimentalWarning", "--disable-warning=UNDICI-EHPA", join(cloneDir, "bin", "jboard.ts"), "--update"],
       (error, stdout, stderr) => resolve({ code: error ? Number(error.code ?? 1) : 0, stdout, stderr }));
   });
 
