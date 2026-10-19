@@ -27,8 +27,10 @@ import { openSprint } from "./sprint.ts";
 import { openStatus } from "./status.ts";
 import { openSubtasks } from "./subtasks.ts";
 
-/** How often merge requests are looked up again while the board is open, to notice merges. */
-const MR_POLL_MS = 30 * 60_000;
+/** How often the board is loaded again from Jira while it is open, and merge requests looked up to notice merges. */
+const REFRESH_MS = 30 * 60_000;
+/** How soon a refresh that could not be shown, because the board was in use, is tried again. */
+const REFRESH_RETRY_MS = 60_000;
 
 /** Rows above the cards: tabs, a blank line, sprint stats, a blank line, column headers and their rules. */
 const BODY_TOP = 6;
@@ -78,6 +80,9 @@ export class Tui implements DialogHost {
   search = new Search(this);
   /** Questions from ssh or git while bench runs, asked one at a time over everything else. */
   prompts: PromptDialog[] = [];
+  /** Keys handled so far: a refresh in the background is only shown when none came in while it loaded. */
+  keysHandled = 0;
+  refreshTimer: NodeJS.Timeout | undefined;
 
   constructor(board: Board, mine: boolean, showAll: boolean) {
     this.board = board;
@@ -404,6 +409,38 @@ export class Tui implements DialogHost {
     this.rebuildKeepingCursor();
   }
 
+  /** Nothing going on that new cards could get in the way of: no dialog, prompt, search or Jira change. */
+  idle(): boolean {
+    return !this.busy && !this.dialog && !this.prompts.length && !this.search.active;
+  }
+
+  scheduleRefresh(ms: number): void {
+    clearTimeout(this.refreshTimer);
+    this.refreshTimer = setTimeout(() => void this.refreshInBackground(), ms).unref();
+  }
+
+  /** The timed refresh: load the open tabs again without holding up the keys or touching the status line. What
+   * loaded is only shown when the board is idle and no key came in meanwhile (a dialog may hold an issue, a change
+   * may have been made); otherwise it is tried again shortly. A failure keeps the board as it is until the next one. */
+  async refreshInBackground(): Promise<void> {
+    if (!this.idle()) return this.scheduleRefresh(REFRESH_RETRY_MS);
+    const keys = this.keysHandled;
+    let show: (() => void)[] | null = null;
+    try {
+      show = await Promise.all(this.views().map((b) => b.fetch()));
+    } catch {
+      // quiet: r shows why
+    }
+    if (show && (!this.idle() || this.keysHandled !== keys)) return this.scheduleRefresh(REFRESH_RETRY_MS);
+    if (show) {
+      for (const apply of show) apply();
+      this.rebuildKeepingCursor();
+      this.draw();
+    }
+    this.showBenches();
+    this.scheduleRefresh(REFRESH_MS);
+  }
+
   // -- drawing
 
   /** Status message, or the keys as keycaps. */
@@ -494,6 +531,7 @@ export class Tui implements DialogHost {
       return;
     }
     if (this.busy) return;
+    this.keysHandled++;
     this.msg = "";
     if (this.dialog) {
       await this.dialog.key(str, key);
@@ -592,8 +630,7 @@ export class Tui implements DialogHost {
     this.draw();
     this.showBenches();
     this.loadTabs();
-    setInterval(() => { // notice merges while the board is open
-      if (!this.busy) this.showBenches();
-    }, MR_POLL_MS).unref();
+    this.scheduleRefresh(REFRESH_MS);
   }
+
 }

@@ -71,7 +71,7 @@ jboard -h           # all options
 | `m` | Toggle "only mine" |
 | `v` | Cards or a compact list, a line per issue, in every tab (until you press it, only the backlog is a list) |
 | `a` | Show all done cards instead of the latest 5 |
-| `r` | Reload from Jira |
+| `r` | Reload from Jira (also done every 30 minutes, once nothing is open) |
 | `?` | Show all keys |
 | `Ctrl+C` | Quit |
 

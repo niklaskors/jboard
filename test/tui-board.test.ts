@@ -227,6 +227,52 @@ describe("refreshing", () => {
     expect(board.screen()).toContain("Login with SSO");
   });
 
+  test("every half hour the board loads again in the background, keeping the cursor and the status line", async () => {
+    const board = await openBoard();
+    await board.press("l");
+    board.tui.msg = "PROJ-4: moved";
+    jira.get("PROJ-1").summary = "Login with SAML";
+    await board.tui.refreshInBackground();
+    expect(board.screen()).toContain("Login with SAML");
+    expect(board.selected()).toBe("PROJ-4");
+    expect(board.status()).toContain("PROJ-4: moved");
+  });
+
+  test("the timed refresh waits while a description is open", async () => {
+    const board = await openBoard();
+    await board.press("d");
+    await board.waitFor("Users sign in with SSO.");
+    jira.get("PROJ-1").summary = "Login with SAML";
+    await board.tui.refreshInBackground();
+    expect(board.screen()).toContain("Users sign in with SSO.");
+    expect(jira.calls("GET", "/rest/agile/1.0/sprint/100/issue")).toHaveLength(1); // only the first load
+    await board.press("<esc>");
+    expect(board.screen()).toContain("Login with SSO");
+    await board.tui.refreshInBackground(); // the retry a minute later
+    expect(board.screen()).toContain("Login with SAML");
+  });
+
+  test("the timed refresh is dropped when a key comes in while it loads", async () => {
+    const board = await openBoard();
+    jira.get("PROJ-1").summary = "Login with SAML";
+    const refresh = board.tui.refreshInBackground();
+    await board.press("d"); // the description opens on the card as it was
+    await refresh;
+    await board.press("<esc>");
+    expect(board.screen()).toContain("Login with SSO");
+    await board.tui.refreshInBackground();
+    expect(board.screen()).toContain("Login with SAML");
+  });
+
+  test("a failed timed refresh is quiet and keeps the board", async () => {
+    const board = await openBoard();
+    jira.get("PROJ-1").summary = "Login with SAML";
+    jira.fail("GET", "/rest/agile/1.0/sprint/100/issue", 500);
+    await board.tui.refreshInBackground();
+    expect(board.screen()).toContain("Login with SSO");
+    expect(board.status()).not.toContain("failed");
+  });
+
   test("Jira refusing the token is fixed by signing in again, shown in the status line", async () => {
     const board = await openBoard();
     onSignInProgress((message) => { // as the board does when it starts
@@ -238,4 +284,5 @@ describe("refreshing", () => {
     expect(board.status()).toContain("refreshed");
     expect(board.frames.map((f) => f.includes("refreshing your Jira sign-in in the browser"))).toContain(true);
   });
+
 });

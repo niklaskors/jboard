@@ -56,6 +56,11 @@ export class Board {
   }
 
   async reload(): Promise<void> {
+    (await this.fetch())();
+  }
+
+  /** Load everything from Jira without showing it yet: the returned function puts it on the board. */
+  async fetch(): Promise<() => void> {
     type BoardConfig = {
       columnConfig: { columns: { name: string; statuses: { id: string }[] }[] };
       estimation?: { type: string; field?: { fieldId: string } };
@@ -119,13 +124,15 @@ export class Board {
     const columns = backlog ? [{ name: "Backlog", statuses: new Set(shown.slice(0, -1).flatMap((c) => [...c.statuses])) }] : shown;
 
     // only replace state once everything loaded, so a failed refresh keeps the old board
-    this.columns = columns;
-    this.doneStatuses = shown[shown.length - 1]?.statuses ?? new Set();
-    this.sprint = sprint;
-    this.me = me.name;
-    this.meUser = { name: me.name, displayName: me.displayName };
-    this.cards = cards;
-    this.pointsField = pointsField;
+    return () => {
+      this.columns = columns;
+      this.doneStatuses = shown[shown.length - 1]?.statuses ?? new Set();
+      this.sprint = sprint;
+      this.me = me.name;
+      this.meUser = { name: me.name, displayName: me.displayName };
+      this.cards = cards;
+      this.pointsField = pointsField;
+    };
   }
 
   /** Me first, then everyone assigned to something in the sprint, by name. */
