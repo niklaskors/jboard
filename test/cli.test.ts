@@ -1,10 +1,12 @@
 // The jboard command, run as a separate process against the fake Jira, as a user would run it.
 
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { createServer, type AddressInfo } from "node:net";
 import { dirname, join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { updatesAvailable } from "../src/update.ts";
 import { TOKEN } from "./fakes/jira.ts";
 import { bench, configFile, jira, opened, ROOT } from "./harness.ts";
 
@@ -264,5 +266,57 @@ describe("the config file", () => {
     const { code, stdout } = await fromFile(["--help"]);
     expect(code).toBe(0);
     expect(stdout).toContain(`Config: ${configFile()}`);
+  });
+});
+
+describe("--update", () => {
+  /** A clone of a repo holding this jboard, with git's output kept quiet and nameless commits allowed. */
+  function clone(): { origin: string; clone: string; git: (cwd: string, ...args: string[]) => string } {
+    const base = realpathSync(mkdtempSync(join(tmpdir(), "jboard-update-")));
+    const env = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" };
+    const git = (cwd: string, ...args: string[]) => execFileSync("git", ["-C", cwd, ...args], { env, encoding: "utf8", stdio: "pipe" });
+    const origin = join(base, "origin");
+    for (const part of ["bin", "src", "package.json"]) cpSync(join(ROOT, part), join(origin, part), { recursive: true });
+    git(base, "init", "-q", "-b", "main", origin);
+    git(origin, "add", ".");
+    git(origin, "commit", "-qm", "First");
+    git(base, "clone", "-q", origin, join(base, "clone"));
+    return { origin, clone: join(base, "clone"), git };
+  }
+
+  const update = (cloneDir: string) => new Promise<Result>((resolve) => {
+    execFile(process.execPath, ["--disable-warning=ExperimentalWarning", join(cloneDir, "bin", "jboard.ts"), "--update"],
+      (error, stdout, stderr) => resolve({ code: error ? Number(error.code ?? 1) : 0, stdout, stderr }));
+  });
+
+  test("pulls the new commits into the clone it runs from and lists them", async () => {
+    const repo = clone();
+    writeFileSync(join(repo.origin, "NEW"), "");
+    repo.git(repo.origin, "add", ".");
+    repo.git(repo.origin, "commit", "-qm", "Add a new thing");
+
+    const { code, stdout } = await update(repo.clone);
+    expect(code).toBe(0);
+    expect(stdout).toContain(`Updating jboard in ${repo.clone}`);
+    expect(stdout).toMatch(/New in jboard:\n +[0-9a-f]+ Add a new thing/);
+    expect(existsSync(join(repo.clone, "NEW"))).toBe(true);
+  });
+
+  test("the board's check counts the commits waiting upstream, and is 0 when it can't tell", async () => {
+    const repo = clone();
+    expect(await updatesAvailable(repo.clone)).toBe(0);
+    for (const n of [1, 2]) {
+      writeFileSync(join(repo.origin, `NEW${n}`), "");
+      repo.git(repo.origin, "add", ".");
+      repo.git(repo.origin, "commit", "-qm", `Change ${n}`);
+    }
+    expect(await updatesAvailable(repo.clone)).toBe(2);
+    expect(await updatesAvailable(tmpdir())).toBe(0); // not a clone
+  });
+
+  test("says nothing is new when it is up to date", async () => {
+    const { code, stdout } = await update(clone().clone);
+    expect(code).toBe(0);
+    expect(stdout).not.toContain("New in jboard");
   });
 });

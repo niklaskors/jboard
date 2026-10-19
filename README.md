@@ -19,12 +19,12 @@ Your active Jira sprint as an interactive kanban board in the terminal.
 ## Install
 
 ```sh
-git clone https://github.com/niklaskors/jboard.git
-ln -s "$PWD/jboard/bin/jboard.ts" ~/.local/bin/jboard   # any directory on your PATH
+git clone https://github.com/niklaskors/jboard.git ~/.local/share/jboard && mkdir -p ~/.local/bin && ln -s ~/.local/share/jboard/bin/jboard.ts ~/.local/bin/jboard
 ```
 
-The link must point at `bin/jboard.ts` inside the clone (not a copy of it): it loads the rest of the code from `src/`.
-To update, `git pull` in the clone.
+`~/.local/bin` must be on your PATH (or link into another directory that is). The link must point at
+`bin/jboard.ts` inside the clone (not a copy of it): it loads the rest of the code from `src/`.
+To update: `jboard --update`; the board says so in its status line when a new version is out.
 
 The first time you run `jboard`, it asks for your Jira's URL, a personal access token (in Jira: your profile →
 Personal Access Tokens) and your board, checks them with Jira and saves them in `~/.config/jboard/config.json`
@@ -40,6 +40,7 @@ jboard -w           # open the board in the browser
 jboard -t day       # light theme
 jboard --columns "To Do,Done"   # only these columns of the board
 jboard --setup      # change your Jira, token or board
+jboard --update     # pull the latest jboard and show what's new
 jboard -h           # all options
 ```
 

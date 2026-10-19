@@ -13,6 +13,7 @@ import { notifications, type Notification } from "../notify.ts";
 import { cardWidth, columnHeaderLine, columnItems, columnWidth, decorate, GAP, headerLine, tabsLine, type Item } from "../render/layout.ts";
 import { lineLen, overlay, place, sliceLine, type Line } from "../render/line.ts";
 import { ansi, columnSlot, shade, theme } from "../render/theme.ts";
+import { updatesAvailable } from "../update.ts";
 import { openAssign } from "./assign.ts";
 import { benchChoices, openBaseBranch, openBenchIssue, openBenchRepo, openMergeRequest, openRemoveBench, startBench } from "./bench.ts";
 import { openCreate } from "./create.ts";
@@ -631,6 +632,13 @@ export class Tui implements DialogHost {
     this.showBenches();
     this.loadTabs();
     this.scheduleRefresh(REFRESH_MS);
+    void updatesAvailable().then((count) => this.showUpdate(count));
   }
 
+  /** Mention a newer jboard in the status line, unless something else is said there. */
+  showUpdate(count: number): void {
+    if (!count || this.msg || this.busy) return;
+    this.msg = `a new jboard is out (${count} change${count === 1 ? "" : "s"}): quit and run jboard --update`;
+    this.draw();
+  }
 }

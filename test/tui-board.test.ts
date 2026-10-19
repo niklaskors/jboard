@@ -285,4 +285,17 @@ describe("refreshing", () => {
     expect(board.frames.map((f) => f.includes("refreshing your Jira sign-in in the browser"))).toContain(true);
   });
 
+  test("mentions a new jboard in the status line until a key is pressed, without hiding another message", async () => {
+    const board = await openBoard();
+    board.tui.showUpdate(0);
+    expect(board.status()).toMatch(/^\?  keys/);
+    board.tui.showUpdate(3);
+    expect(board.status()).toContain("a new jboard is out (3 changes): quit and run jboard --update");
+    await board.press("j");
+    expect(board.status()).toMatch(/^\?  keys/);
+
+    board.tui.msg = "PROJ-1 is now Done";
+    board.tui.showUpdate(1);
+    expect(board.tui.msg).toBe("PROJ-1 is now Done");
+  });
 });
