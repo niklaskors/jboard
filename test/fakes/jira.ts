@@ -9,11 +9,11 @@ export const BOARD_ID = "7";
 export const POINTS_FIELD = "customfield_10002";
 
 export const STATUSES: Record<string, string> = {
-  "1": "To Do", "3": "In Progress", "10": "In Review", "10001": "Done", "6": "Rejected", "99": "Archived",
+  "1": "To Do", "11": "Blocked", "3": "In Progress", "10": "In Review", "10001": "Done", "6": "Rejected", "99": "Archived",
 };
 /** The transition to each status, by its id. */
 const TRANSITION_NAMES: Record<string, string> = {
-  "1": "Back to do", "3": "Start progress", "10": "Request review", "10001": "Done", "6": "Reject", "99": "Archive",
+  "1": "Back to do", "11": "Block", "3": "Start progress", "10": "Request review", "10001": "Done", "6": "Reject", "99": "Archive",
 };
 
 export const USERS: Record<string, { name: string; displayName: string }> = {
@@ -231,7 +231,7 @@ export class FakeJira {
       if (m![1] !== BOARD_ID) return [404, { errorMessages: [`Board ${m![1]} does not exist`] }];
       return [200, {
         columnConfig: { columns: [
-          { name: "To Do", statuses: [{ id: "1" }] },
+          { name: "To Do", statuses: [{ id: "1" }, { id: "11" }] },
           { name: "In Progress", statuses: [{ id: "3" }] },
           { name: "Review", statuses: [{ id: "10" }] },
           { name: "Done", statuses: [{ id: "10001" }, { id: "6" }] },

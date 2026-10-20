@@ -108,12 +108,16 @@ const pointsCell = (board: Board, card: Card): Line => {
 };
 const nameCell = (board: Board, user: User | null): Line => [["  ", null], [firstName(user).padEnd(12), personStyle(board, user)]];
 
+/** A status that holds the issue up, e.g. "Blocked", which its column alone doesn't tell. */
+const isBlocked = (issue: Issue) => /block/i.test(issue.fields.status.name);
+
 /** `keyWidth`: in a compact list, keys are padded to this so the summaries line up. */
 function cardLines(board: Board, card: Card, colIdx: number, width: number, expanded: boolean, benched: Benched,
   compact: boolean, keyWidth = 0): Line[] {
   const f = card.fields;
   const left: Line = [typeIcon(f.issuetype.name), [" ", null], [compact ? card.key.padEnd(keyWidth) : card.key, `col${slot(board, colIdx)}`]];
   left.push(...benchMarker(benched, card.key));
+  if (isBlocked(card)) left.push([` ${f.status.name}`, "warn"]);
   if (compact) { // one line, like a list: key, summary, points, assignee
     if (card.subs.length) left.push([` ${expanded ? "▾" : "▸"}`, "dim"]);
     const points = pointsCell(board, card);
@@ -141,7 +145,7 @@ function subLines(board: Board, sub: Issue, width: number, benched: Benched, com
   const cidx = board.columnOf(sub);
   const left: Line = [["  ↳ ", "dim"], [sub.key, "bold"]];
   left.push(...benchMarker(benched, sub.key));
-  left.push([" ", null], [f.status.name, cidx >= 0 ? `fg${slot(board, cidx)}` : "dim"]);
+  left.push([" ", null], [f.status.name, isBlocked(sub) ? "warn" : cidx >= 0 ? `fg${slot(board, cidx)}` : "dim"]);
   if (compact) return [listLine(left, f.summary, "name", [nameCell(board, f.assignee)], width)];
   return [fit(left, firstName(f.assignee), width, personStyle(board, f.assignee)),
     [[`    ${shorten(f.summary, width - 4)}`, "name"]]];

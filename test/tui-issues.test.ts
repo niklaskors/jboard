@@ -17,7 +17,7 @@ describe("s: status", () => {
     // where each status is on the board; rejecting comes last
     expect(board.box().slice(1)).toEqual([
       expect.stringMatching(/^To Do +→ To Do$/), expect.stringMatching(/^In Review +→ Review$/),
-      expect.stringMatching(/^Archived +not on board$/), expect.stringMatching(/^Done +→ Done$/),
+      expect.stringMatching(/^Blocked +→ To Do$/), expect.stringMatching(/^Archived +not on board$/), expect.stringMatching(/^Done +→ Done$/),
       expect.stringMatching(/^Rejected +→ Done$/),
     ]);
     await board.type("rev");

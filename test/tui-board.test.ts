@@ -96,6 +96,15 @@ describe("the board", () => {
     expect(board.rows()[4]).toContain("REVIEW");
   });
 
+  test("marks a blocked card, which its column doesn't tell", async () => {
+    jira.get("PROJ-1").status = "11";
+    const board = await openBoard();
+    expect(board.screen()).toMatch(/PROJ-1 Blocked 3 pts/);
+    expect(board.screen()).toMatch(/PROJ-4 2 pts/); // other cards don't say their status
+    await board.press("v");
+    expect(board.screen()).toMatch(/PROJ-1 Blocked ▸ Login with SSO/);
+  });
+
   test("a shows all done cards", async () => {
     const board = await openBoard();
     await board.press("a");
