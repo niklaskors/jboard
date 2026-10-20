@@ -59,6 +59,7 @@ Config: ${CONFIG_FILE}, e.g.
   token      personal access token, sent as a bearer token             (required)
   board      board to show, the rapidView=<id> in the board's URL       (or use --board)
   columns    columns to show, a list or comma separated                (or use --columns)
+  hideEmpty  columns to leave out while they have no cards, e.g. ["In Review"]
   theme      night, day or classic                                     (or use --theme)
   ssoUrl     page that redoes your SSO sign-in when Jira suddenly refuses the token
              (default: <server>/login.jsp)
@@ -68,7 +69,8 @@ Config: ${CONFIG_FILE}, e.g.
   truecolor  true forces 24-bit colour
 
 Each can also be set in the environment, which wins over the file: JIRA_SERVER, JIRA_API_TOKEN,
-JIRA_BOARD_ID, JBOARD_COLUMNS, JBOARD_THEME, JIRA_SSO_URL, JBOARD_BENCH, JBOARD_BRANCH, JBOARD_TRUECOLOR.`;
+JIRA_BOARD_ID, JBOARD_COLUMNS, JBOARD_HIDE_EMPTY, JBOARD_THEME, JIRA_SSO_URL, JBOARD_BENCH, JBOARD_BRANCH,
+JBOARD_TRUECOLOR.`;
 
 async function main(): Promise<void> {
   let values;
@@ -136,6 +138,7 @@ async function main(): Promise<void> {
 
   const columns = (values.columns ?? setting("columns") ?? "").split(",").map((c) => c.trim()).filter(Boolean);
   const board = new Board(boardId, columns);
+  board.hideEmpty = (setting("hideEmpty") ?? "").split(",").map((c) => c.trim()).filter(Boolean);
   await board.reload();
   if (values.print || !process.stdout.isTTY || !process.stdin.isTTY) {
     printBoard(board, !!values.mine, !!values.all, benchedIssues(await listBenches({ mrs: true, keys: board.keys() }), board.keys()));

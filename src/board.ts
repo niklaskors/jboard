@@ -41,6 +41,8 @@ export class Board {
 
   /** Names of the board columns to show (any case), or all of them. */
   only: string[];
+  /** Names of the board columns (any case) left out while they have no cards. */
+  hideEmpty: string[] = [];
 
   /** A sprint, or with no `sprintId` the active one; or with kind "backlog" the backlog. */
   constructor(boardId: string, only: string[] = [], kind: BoardKind = "sprint", sprintId?: number) {
@@ -52,7 +54,9 @@ export class Board {
 
   /** Another sprint of this board, or its backlog (`null`), not loaded yet. */
   view(sprintId: number | null): Board {
-    return new Board(this.boardId, this.only, sprintId === null ? "backlog" : "sprint", sprintId ?? undefined);
+    const board = new Board(this.boardId, this.only, sprintId === null ? "backlog" : "sprint", sprintId ?? undefined);
+    board.hideEmpty = this.hideEmpty;
+    return board;
   }
 
   async reload(): Promise<void> {
@@ -113,7 +117,7 @@ export class Board {
     // cards whose column isn't shown are left out, like cards with a status on no column
     const all = config.columnConfig.columns;
     const wanted = new Set(this.only.map((name) => name.toLowerCase()));
-    const unknown = this.only.filter((name) => !all.some((c) => c.name.toLowerCase() === name.toLowerCase()));
+    const unknown = [...this.only, ...this.hideEmpty].filter((name) => !all.some((c) => c.name.toLowerCase() === name.toLowerCase()));
     if (unknown.length) {
       throw new JiraError(`no column ${unknown.map((n) => `"${n}"`).join(", ")} on this board; it has: ${all.map((c) => c.name).join(", ")}`);
     }
@@ -165,8 +169,11 @@ export class Board {
     return [card, ...card.subs].some((i) => assigneeName(i) === this.me);
   }
 
-  /** Cards per column, how many done cards were left out, and story points per column (hidden ones included). */
-  buckets(mine: boolean, showAll: boolean): { buckets: Card[][]; hidden: number; points: number[] } {
+  /**
+   * Cards per shown column, the index in `columns` of each (empty `hideEmpty` columns are left out),
+   * how many done cards were left out, and story points per column of `columns` (hidden cards included).
+   */
+  buckets(mine: boolean, showAll: boolean): { buckets: Card[][]; cols: number[]; hidden: number; points: number[] } {
     const buckets: Card[][] = this.columns.map(() => []);
     for (const card of this.cards) {
       const idx = this.columnOf(card);
@@ -180,6 +187,8 @@ export class Board {
       hidden = buckets[last].length - DONE_LIMIT;
       buckets[last] = buckets[last].slice(0, DONE_LIMIT);
     }
-    return { buckets, hidden, points };
+    const hideable = new Set(this.hideEmpty.map((name) => name.toLowerCase()));
+    const cols = this.columns.flatMap((c, i) => (buckets[i].length || !hideable.has(c.name.toLowerCase()) ? [i] : []));
+    return { buckets: cols.map((i) => buckets[i]), cols, hidden, points };
   }
 }

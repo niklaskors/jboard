@@ -85,6 +85,17 @@ describe("the board", () => {
     expect(board.selected()).toBe("PROJ-9");
   });
 
+  test("leaves out a hideEmpty column while it has no cards", async () => {
+    const board = await openBoard({ hideEmpty: ["review"] });
+    expect(board.rows()[4]).toContain("REVIEW");
+    await board.press("m"); // none of the review cards are mine
+    expect(board.rows()[4]).toMatch(/TO DO +1 · 3 pts +● IN PROGRESS +1 · 0 pts +● DONE +2 · 2 pts/);
+    await board.press("l", "l"); // from in progress straight to done
+    expect(board.selected()).toBe("PROJ-21");
+    await board.press("m");
+    expect(board.rows()[4]).toContain("REVIEW");
+  });
+
   test("a shows all done cards", async () => {
     const board = await openBoard();
     await board.press("a");

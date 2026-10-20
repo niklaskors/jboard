@@ -71,6 +71,8 @@ export class Tui implements DialogHost {
   msg = "";
   busy = false;
   buckets: Card[][] = [];
+  /** The index in the board's columns of each shown column. */
+  cols: number[] = [];
   hidden = 0;
   points: number[] = [];
   items: Item[][] = [];
@@ -106,11 +108,12 @@ export class Tui implements DialogHost {
   // -- state
 
   rebuild(): void {
-    const n = this.board.columns.length;
+    ({ buckets: this.buckets, cols: this.cols, hidden: this.hidden, points: this.points } = this.board.buckets(this.mine, this.showAll));
+    const n = this.buckets.length;
     this.colW = columnWidth(this.width, n);
-    ({ buckets: this.buckets, hidden: this.hidden, points: this.points } = this.board.buckets(this.mine, this.showAll));
     const compact = this.compact();
-    this.items = this.buckets.map((b, i) => columnItems(this.board, b, i, cardWidth(this.colW), this.expanded, this.benched, compact));
+    this.items = this.buckets.map((b, i) => columnItems(this.board, b, this.cols[i], cardWidth(this.colW), this.expanded, this.benched, compact));
+    this.col = Math.max(0, Math.min(this.col, n - 1));
     for (let c = 0; c < n; c++) {
       this.sel[c] = Math.min(this.sel[c] ?? 0, Math.max(0, this.items[c].length - 1));
     }
@@ -470,9 +473,10 @@ export class Tui implements DialogHost {
     rows[2] = headerLine(this.board, this.mine, shown, this.points);
     this.items.forEach((items, c) => {
       const x = c * (this.colW + GAP);
-      const slot = columnSlot(c, n);
+      const idx = this.cols[c];
+      const slot = columnSlot(idx, this.board.columns.length);
       const total = this.buckets[c].length + (c === n - 1 ? this.hidden : 0);
-      place(rows[4], x, sliceLine(columnHeaderLine(this.board, c, total, this.points[c] ?? 0, c === this.col), 0, this.colW));
+      place(rows[4], x, sliceLine(columnHeaderLine(this.board, idx, total, this.points[idx] ?? 0, c === this.col), 0, this.colW));
 
       // [line, selected, part of a card]
       const lines: [Line, boolean, boolean][] = [];

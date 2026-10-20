@@ -112,9 +112,11 @@ export function setTerminalSize(columns: number, rows: number): void {
 }
 
 /** The board as `jboard` opens it, loaded from the fake Jira, drawn once. */
-export async function openBoard({ mine = false, all = false, columns = [] as string[], width = 160, height = 40 } = {}): Promise<Driver> {
+export async function openBoard({ mine = false, all = false, columns = [] as string[], hideEmpty = [] as string[], width = 160,
+  height = 40 } = {}): Promise<Driver> {
   setTerminalSize(width, height);
   const board = new Board(BOARD_ID, columns);
+  board.hideEmpty = hideEmpty;
   await board.reload();
   const tui = new Tui(board, mine, all);
   // switching the terminal in and out of raw mode needs a real terminal; leaving it for the editor still happens

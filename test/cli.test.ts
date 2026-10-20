@@ -76,6 +76,13 @@ describe("printing the board", () => {
     expect(keysIn(env.stdout)).toEqual(["PROJ-1"]);
   });
 
+  test("$JBOARD_HIDE_EMPTY leaves out those columns while they have no cards", async () => {
+    expect((await jboard(["-p"], { JBOARD_HIDE_EMPTY: "Review" })).stdout).toContain("REVIEW");
+    const mine = await jboard(["-p", "-m"], { JBOARD_HIDE_EMPTY: "Review" });
+    expect(mine.stdout).not.toContain("REVIEW");
+    expect(mine.stdout).toContain("DONE");
+  });
+
   test("an unknown column is refused, naming the board's columns", async () => {
     const { code, stderr } = await jboard(["-p", "--columns", "Doing"]);
     expect(code).toBe(1);
@@ -220,7 +227,7 @@ describe("the config file", () => {
     writeConfig({ server: jira.url, tokn: TOKEN });
     const { code, stderr } = await fromFile(["-p"]);
     expect(code).toBe(2);
-    expect(stderr).toContain('unknown setting "tokn", choose from: server, token, board, columns, theme, ssoUrl, bench, branch, truecolor');
+    expect(stderr).toContain('unknown setting "tokn", choose from: server, token, board, columns, hideEmpty, theme, ssoUrl, bench, branch, truecolor');
   });
 
   test("needs a server and a token", async () => {

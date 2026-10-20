@@ -101,6 +101,7 @@ Each setting can also come from an environment variable, which wins over the fil
 | `token` | `JIRA_API_TOKEN` | Personal access token, sent as a bearer token (required) |
 | `board` | `JIRA_BOARD_ID` | Board to show, the `rapidView=<id>` in its URL; or pass `--board <id>` |
 | `columns` | `JBOARD_COLUMNS` | The board's columns to show, a list or comma separated, e.g. `To Do,In Progress,Done` (default: all); or pass `--columns`. Cards in other columns are left out |
+| `hideEmpty` | `JBOARD_HIDE_EMPTY` | Columns to leave out while they have no cards (also with "only mine"), a list or comma separated, e.g. `["In Review"]` |
 | `theme` | `JBOARD_THEME` | `night` (default), `day` or `classic` |
 | `ssoUrl` | `JIRA_SSO_URL` | Page that redoes your single sign-on, see below (default: `<server>/login.jsp`) |
 | `bench` | `JBOARD_BENCH` | The bench command for `b` and `B` (default `bench`) |

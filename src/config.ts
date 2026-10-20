@@ -14,6 +14,7 @@ const SETTINGS = {
   token: "JIRA_API_TOKEN",
   board: "JIRA_BOARD_ID",
   columns: "JBOARD_COLUMNS",
+  hideEmpty: "JBOARD_HIDE_EMPTY",
   theme: "JBOARD_THEME",
   ssoUrl: "JIRA_SSO_URL",
   bench: "JBOARD_BENCH",
