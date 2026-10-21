@@ -1,6 +1,6 @@
 // The Jira operations jboard performs, apart from loading the board (see board.ts).
 
-import { get, jiraMessage, JiraError, request } from "./client.ts";
+import { get, jiraMessage, JiraError, JiraUnanswered, request } from "./client.ts";
 import type { Sprint, Transition, User } from "./types.ts";
 
 /** The workflow steps Jira allows from the issue's current status. */
@@ -41,7 +41,7 @@ export async function openSprints(boardId: string): Promise<Sprint[]> {
 /** Move an issue to a sprint, or back to the backlog with `null`; its subtasks go with it. */
 export function moveToSprint(issueKey: string, sprintId: number | null): Promise<void> {
   const path = sprintId === null ? "/rest/agile/1.0/backlog/issue" : `/rest/agile/1.0/sprint/${sprintId}/issue`;
-  return request("POST", path, { body: { issues: [issueKey] } });
+  return request("POST", path, { body: { issues: [issueKey] }, repeatable: true });
 }
 
 export interface IssueType {
@@ -91,11 +91,36 @@ export async function boardProject(boardId: string, keys: string[]): Promise<str
   return best.key;
 }
 
-/** Create an issue without a sprint, so it starts in the backlog; returns its key. */
+const CREATE_ATTEMPTS = 3;
+
+/**
+ * Create an issue without a sprint, so it starts in the backlog; returns its key. When Jira doesn't answer,
+ * it may have created the issue anyway, so that is looked up before the create is sent again.
+ */
 export async function createIssue(project: string, typeId: string, summary: string, description: string): Promise<string> {
   const fields: Record<string, unknown> = { project: { key: project }, issuetype: { id: typeId }, summary };
   if (description) fields.description = description;
-  return (await request<{ key: string }>("POST", "/rest/api/2/issue", { body: { fields } })).key;
+  const started = Date.now();
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return (await request<{ key: string }>("POST", "/rest/api/2/issue", { body: { fields } })).key;
+    } catch (e) {
+      if (!(e instanceof JiraUnanswered)) throw e;
+      const key = await findCreated(project, typeId, summary, started).catch(() => undefined);
+      if (key) return key;
+      if (key === undefined || attempt >= CREATE_ATTEMPTS) throw e; // unknown whether it exists, or out of tries
+    }
+  }
+}
+
+/** The issue with this summary and type that I created since `since`, or null when there is none. */
+async function findCreated(project: string, typeId: string, summary: string, since: number): Promise<string | null> {
+  const minutes = Math.ceil((Date.now() - since) / 60_000) + 1; // JQL counts back from Jira's clock, not ours
+  const jql = `project = "${project}" AND issuetype = ${typeId} AND reporter = currentUser() AND created >= -${minutes}m`
+    + " ORDER BY created DESC";
+  const res = await get<{ issues: { key: string; fields: { summary: string } }[] }>("/rest/api/2/search",
+    { jql, fields: "summary", maxResults: 20 });
+  return res.issues.find((i) => i.fields.summary === summary)?.key ?? null;
 }
 
 interface BulkResult {

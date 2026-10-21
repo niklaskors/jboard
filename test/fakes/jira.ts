@@ -53,6 +53,7 @@ export interface FakeIssue {
   points?: number | null;
   description?: string | null;
   updated: string;
+  created?: string; // only on issues made through the API, which are mine
 }
 
 interface RecordedRequest {
@@ -60,6 +61,14 @@ interface RecordedRequest {
   path: string;
   query: Record<string, string>;
   body: any;
+}
+
+interface Stall {
+  method: string;
+  path: string;
+  ms: number;
+  handled: boolean;
+  times: number;
 }
 
 interface Failure {
@@ -121,6 +130,7 @@ export class FakeJira {
   failures: Failure[] = [];
   /** Issues per page, whatever maxResults asks for (Jira caps it too). */
   pageSize = 100;
+  stalls: Stall[] = [];
   /** Answer the token with an SSO-style 403 until this many sign-in probes (GET /myself) were made. */
   ssoProbesNeeded = 0;
   private nextKey = 100;
@@ -141,6 +151,7 @@ export class FakeJira {
     this.projects = [{ key: "PROJ", name: "Project" }];
     this.requests = [];
     this.failures = [];
+    this.stalls = [];
     this.pageSize = 100;
     this.ssoProbesNeeded = 0;
     this.nextKey = 100;
@@ -150,6 +161,14 @@ export class FakeJira {
   fail(method: string, path: string | RegExp, status: number, body: unknown = {}, { times = 1, headers = {} } = {}): void {
     const pattern = typeof path === "string" ? new RegExp(`^${path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`) : path;
     this.failures.push({ method, path: pattern, status, body, headers, times });
+  }
+
+  /**
+   * Answer the next `times` requests matching method and path only after `ms`, as a busy Jira does; with
+   * `handled` false the request is dropped, as when it never got to Jira.
+   */
+  stall(method: string, path: string, ms: number, { times = 1, handled = true } = {}): void {
+    this.stalls.push({ method, path, ms, handled, times });
   }
 
   get(key: string): FakeIssue {
@@ -206,7 +225,7 @@ export class FakeJira {
     const created: FakeIssue = {
       key: `${fields.project.key}-${this.nextKey++}`, summary: fields.summary, status: "1", type: type.name, assignee: null,
       sprint: parent ? parent.sprint : null, parent: parent?.key, points: null, description: fields.description ?? null,
-      updated: new Date().toISOString(),
+      updated: new Date().toISOString(), created: new Date().toISOString(),
     };
     this.issues.push(created);
     return created;
@@ -292,6 +311,14 @@ export class FakeJira {
       i.updated = new Date().toISOString();
       return [204, null];
     }
+    if (route("GET", /^\/rest\/api\/2\/search$/)) {
+      // only the JQL jboard sends to find what it just created: my newest issues of a project and type
+      const [, project, typeId] = q.jql.match(/^project = "(\w+)" AND issuetype = (\d+) AND reporter = currentUser\(\)/) ?? [];
+      const type = TYPES.find((t) => t.id === typeId)?.name;
+      const mine = this.issues.filter((i) => i.created && i.key.startsWith(`${project}-`) && i.type === type)
+        .sort((a, b) => b.created!.localeCompare(a.created!));
+      return [200, this.page(mine, q)];
+    }
     if (route("POST", /^\/rest\/api\/2\/issue$/)) {
       const created = this.create(body.fields);
       if ("error" in created) return [400, { errorMessages: [], errors: { summary: created.error } }];
@@ -342,6 +369,14 @@ export class FakeJira {
         if (!this.ssoProbesNeeded) return send(200, USERS.jdoe);
       }
       return send(403, { errorMessages: ["You do not have sufficient permissions to view this"] }, { "X-AUSERNAME": "jdoe" });
+    }
+    const stall = this.stalls.find((f) => f.method === method && f.path === path);
+    if (stall) {
+      if (--stall.times <= 0) this.stalls.splice(this.stalls.indexOf(stall), 1);
+      const [status, payload] = stall.handled ? this.route(method, url.pathname, query, body) : [504, {}];
+      await new Promise((resolve) => setTimeout(resolve, stall.ms));
+      if (!res.destroyed) send(status, payload);
+      return;
     }
     const failure = this.failures.find((f) => f.method === method && f.path.test(path));
     if (failure) {

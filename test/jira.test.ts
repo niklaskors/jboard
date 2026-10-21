@@ -1,13 +1,13 @@
 // jboard's Jira client and operations against the fake Jira: what they send, and how they handle Jira's errors.
 
 import { existsSync, readFileSync } from "node:fs";
-import { describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { Board } from "../src/board.ts";
 import {
   assignIssue, boardProject, createIssue, createSubtasks, issueTypes, loadDescription, loadTransitions, moveToSprint,
   openSprints, searchAssignable, setField, transitionIssue,
 } from "../src/jira/api.ts";
-import { JiraError, onSignInProgress } from "../src/jira/client.ts";
+import { JiraError, JiraUnanswered, onSignInProgress, setTimings } from "../src/jira/client.ts";
 import { BOARD_ID, POINTS_FIELD } from "./fakes/jira.ts";
 import { errorLog, jira, opened } from "./harness.ts";
 
@@ -59,6 +59,56 @@ describe("the client", () => {
     // in the background (where the OS allows), so the board keeps the focus
     const background = process.platform === "darwin" ? "-g " : "";
     expect(opened()).toEqual([`${background}${jira.url}/login.jsp?os_destination=%2Fsecure%2FDashboard.jspa`]);
+  });
+});
+
+describe("when Jira doesn't answer in time", () => {
+  beforeEach(() => setTimings({ request: 100, retry: 0 }));
+  afterEach(() => setTimings({ request: 30_000, retry: 1_500 }));
+
+  test("reads and edits are sent again", async () => {
+    jira.stall("GET", "/rest/api/2/issue/PROJ-1/transitions", 300);
+    expect((await loadTransitions("PROJ-1")).length).toBeGreaterThan(0);
+    jira.stall("PUT", "/rest/api/2/issue/PROJ-5/assignee", 300, { handled: false });
+    await assignIssue("PROJ-5", { name: "ckent" });
+    expect(jira.get("PROJ-5").assignee).toBe("ckent");
+    expect(jira.calls("PUT", "/rest/api/2/issue/PROJ-5/assignee")).toHaveLength(2);
+  });
+
+  test("gives up after three attempts", async () => {
+    jira.stall("GET", "/rest/api/2/issue/PROJ-1/transitions", 300, { times: 3 });
+    await expect(loadTransitions("PROJ-1")).rejects.toThrow("cannot reach Jira: The operation was aborted due to timeout (3 attempts)");
+    expect(readFileSync(errorLog(), "utf8")).toMatch(/attempt 3\/3 no answer GET .*\/transitions\nThe operation was aborted/);
+  });
+
+  test("a create Jira did anyway is found, not made twice", async () => {
+    const key = await createIssue("PROJ", "10", "Export to CSV", "");
+    jira.stall("POST", "/rest/api/2/issue", 300);
+    expect(await createIssue("PROJ", "10", "Export to CSV", "")).toBe("PROJ-101");
+    expect(jira.issues.filter((i) => i.summary === "Export to CSV").map((i) => i.key)).toEqual([key, "PROJ-101"]);
+    expect(jira.calls("POST", "/rest/api/2/issue")).toHaveLength(2);
+    expect(jira.calls("GET", "/rest/api/2/search")[0].query.jql)
+      .toMatch(/^project = "PROJ" AND issuetype = 10 AND reporter = currentUser\(\) AND created >= -\d+m/);
+  });
+
+  test("a create that didn't get to Jira is sent again", async () => {
+    jira.stall("POST", "/rest/api/2/issue", 300, { handled: false });
+    expect(await createIssue("PROJ", "10", "Export to CSV", "")).toBe("PROJ-100");
+    expect(jira.calls("POST", "/rest/api/2/issue")).toHaveLength(2);
+  });
+
+  test("a create is not sent again when Jira can't be asked whether it was made", async () => {
+    jira.stall("POST", "/rest/api/2/issue", 300, { handled: false });
+    jira.fail("GET", "/rest/api/2/search", 500);
+    await expect(createIssue("PROJ", "10", "Export to CSV", "")).rejects.toThrow(JiraUnanswered);
+    expect(jira.calls("POST", "/rest/api/2/issue")).toHaveLength(1);
+  });
+
+  test("other writes are not sent again, and say Jira may have done them", async () => {
+    jira.stall("POST", "/rest/api/2/issue/PROJ-1/transitions", 300);
+    await expect(transitionIssue("PROJ-1", "t3")).rejects.toThrow("no answer from Jira on POST /rest/api/2/issue/PROJ-1/transitions "
+      + "(The operation was aborted due to timeout); it may have done it anyway, so check before trying again");
+    expect(jira.calls("POST", "/rest/api/2/issue/PROJ-1/transitions")).toHaveLength(1);
   });
 });
 

@@ -13,24 +13,38 @@ const DIAG_HEADERS = ["X-Seraph-LoginReason", "X-Authentication-Denied-Reason", 
   "Retry-After", "Server", "Via", "X-Cache"];
 const SIGN_IN_WAIT_MS = 30_000;
 const SIGN_IN_POLL_MS = 2_000;
+// errors that mean the request never left this machine, so even a create can be sent again
+const NOT_SENT_CODES = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN"]);
+const timings = { request: 30_000, retry: 1_500 };
 
 /** Anything that went wrong talking to Jira, with a message meant for the user. */
 export class JiraError extends Error {}
+
+/** A write Jira didn't answer: it may have done it anyway, so it isn't repeated blindly. */
+export class JiraUnanswered extends JiraError {}
 
 export type Params = Record<string, string | number>;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function logError(res: Response, body: string, url: string, attempt: number): void {
+/** How long a request may take and the pause before a retry; the tests shorten them. */
+export function setTimings(changes: Partial<typeof timings>): void {
+  Object.assign(timings, changes);
+}
+
+function log(attempt: number, what: string, details: string): void {
   try {
     mkdirSync(dirname(ERROR_LOG), { recursive: true });
-    const headers = [...res.headers].map(([k, v]) => `${k}: ${v}`).join("\n");
     const stamp = new Date().toLocaleString("sv-SE"); // 2026-10-01 09:33:24
-    appendFileSync(ERROR_LOG,
-      `--- ${stamp} attempt ${attempt}/${ATTEMPTS} HTTP ${res.status} ${url}\n${headers}\n\n${body.slice(0, 500)}\n\n`);
+    appendFileSync(ERROR_LOG, `--- ${stamp} attempt ${attempt}/${ATTEMPTS} ${what}\n${details}\n\n`);
   } catch {
     // logging is best effort
   }
+}
+
+function logError(res: Response, body: string, url: string, attempt: number): void {
+  const headers = [...res.headers].map(([k, v]) => `${k}: ${v}`).join("\n");
+  log(attempt, `HTTP ${res.status} ${url}`, `${headers}\n\n${body.slice(0, 500)}`);
 }
 
 let reportSignIn = (message: string) => console.error(`jboard: ${message}`);
@@ -76,12 +90,17 @@ export function jiraMessage(body: string): string {
   }
 }
 
+/**
+ * Send a request, retrying what fails intermittently. Without an answer it is only sent again when it is
+ * `repeatable` (by default everything but a POST) or never reached Jira.
+ */
 export async function request<T>(method: "GET" | "PUT" | "POST", path: string,
-  opts: { params?: Params; body?: unknown } = {}): Promise<T> {
+  opts: { params?: Params; body?: unknown; repeatable?: boolean } = {}): Promise<T> {
   const query = new URLSearchParams(Object.entries(opts.params ?? {}).map(([k, v]) => [k, String(v)])).toString();
   const url = `${SERVER}${path}${query ? `?${query}` : ""}`;
   const headers: Record<string, string> = { Authorization: `Bearer ${TOKEN}`, Accept: "application/json" };
   if (opts.body !== undefined) headers["Content-Type"] = "application/json";
+  const repeatable = opts.repeatable ?? method !== "POST";
   let signedInAgain = false;
   for (let attempt = 1; ; attempt++) {
     let res: Response;
@@ -90,11 +109,22 @@ export async function request<T>(method: "GET" | "PUT" | "POST", path: string,
         method,
         headers,
         body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
-        signal: AbortSignal.timeout(30_000),
+        signal: AbortSignal.timeout(timings.request),
       });
     } catch (e) {
       const cause = (e as { cause?: { code?: string; message?: string } }).cause;
-      throw new JiraError(`cannot reach Jira: ${cause?.code ?? cause?.message ?? (e as Error).message}`);
+      const reason = cause?.code ?? cause?.message ?? (e as Error).message;
+      log(attempt, `no answer ${method} ${url}`, reason);
+      const notSent = NOT_SENT_CODES.has(cause?.code ?? "");
+      if ((repeatable || notSent) && attempt < ATTEMPTS) {
+        await sleep(timings.retry * attempt);
+        continue;
+      }
+      if (!repeatable && !notSent) {
+        throw new JiraUnanswered(`no answer from Jira on ${method} ${path} (${reason}); it may have done it anyway, `
+          + "so check before trying again");
+      }
+      throw new JiraError(`cannot reach Jira: ${reason}` + (attempt > 1 ? ` (${attempt} attempts)` : ""));
     }
     if (res.ok) return (res.status === 204 ? undefined : await res.json()) as T;
 
@@ -115,7 +145,7 @@ export async function request<T>(method: "GET" | "PUT" | "POST", path: string,
     const retryable = RETRY_CODES.has(res.status) && (method === "GET" || res.status !== 403);
     if (retryable && attempt < ATTEMPTS) {
       const retryAfter = res.headers.get("retry-after") ?? "";
-      await sleep(/^\d+$/.test(retryAfter) ? Math.min(10, Number(retryAfter)) * 1000 : 1500 * attempt);
+      await sleep(/^\d+$/.test(retryAfter) ? Math.min(10, Number(retryAfter)) * 1000 : timings.retry * attempt);
       continue;
     }
     const message = jiraMessage(body);
