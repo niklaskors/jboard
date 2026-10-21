@@ -142,6 +142,16 @@ describe("loading the board", () => {
     expect(board.keys()).toHaveLength(12);
   });
 
+  test("subtasks in board order: to do, in progress, review, done", async () => {
+    const find = (key: string) => jira.issues.find((i) => i.key === key)!;
+    find("PROJ-2").status = "10001";
+    find("PROJ-3").status = "10";
+    jira.issues.push({ ...find("PROJ-2"), key: "PROJ-7", status: "3" }, { ...find("PROJ-2"), key: "PROJ-8", status: "1" });
+    const board = new Board(BOARD_ID);
+    await board.reload();
+    expect(board.cards.find((c) => c.key === "PROJ-1")!.subs.map((s) => s.key)).toEqual(["PROJ-8", "PROJ-7", "PROJ-3", "PROJ-2"]);
+  });
+
   test("buckets cards by column, the latest 5 done cards unless all are asked for", async () => {
     const board = new Board(BOARD_ID);
     await board.reload();

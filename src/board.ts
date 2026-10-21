@@ -121,6 +121,12 @@ export class Board {
     if (unknown.length) {
       throw new JiraError(`no column ${unknown.map((n) => `"${n}"`).join(", ")} on this board; it has: ${all.map((c) => c.name).join(", ")}`);
     }
+    // subtasks in board order (new, in progress, review, done), each column in Jira's order; a status on no column last
+    const order = (issue: Issue) => {
+      const idx = all.findIndex((c) => c.statuses.some((s) => s.id === issue.fields.status.id));
+      return idx < 0 ? all.length : idx;
+    };
+    for (const card of cards) card.subs.sort((a, b) => order(a) - order(b));
     const toColumn = (c: (typeof all)[number]): Column => ({ name: c.name, statuses: new Set(c.statuses.map((s) => s.id)) });
     // the backlog is one list of what isn't done, whatever the status, also of columns the sprint doesn't show;
     // an issue that is done (or rejected) leaves it, as in Jira's backlog
